@@ -1,0 +1,518 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== ENUMS ====================
+
+enum LifecycleStage {
+  new_lead
+  contacted
+  qualified
+  proposal
+  negotiation
+  won
+  lost
+
+  @@map("lifecycle_stage")
+}
+
+enum Temperature {
+  cold
+  warm
+  hot
+}
+
+enum RecommendedPath {
+  outreach
+  nurture
+  direct_call
+  ignore
+
+  @@map("recommended_path")
+}
+
+enum DealStage {
+  discovery
+  proposal
+  negotiation
+  won
+  lost
+
+  @@map("deal_stage")
+}
+
+enum CallStatus {
+  booked
+  completed
+  no_show
+
+  @@map("call_status")
+}
+
+enum IntakeSource {
+  csv
+  form
+  webhook
+
+  @@map("intake_source")
+}
+
+enum JobStatus {
+  pending
+  running
+  failed
+  completed
+
+  @@map("job_status")
+}
+
+enum InvoiceStatus {
+  draft
+  sent
+  paid
+  overdue
+  cancelled
+
+  @@map("invoice_status")
+}
+
+enum LogLevel {
+  debug
+  info
+  warn
+  error
+
+  @@map("log_level")
+}
+
+enum LeadPriority {
+  critical
+  high
+  normal
+  low
+
+  @@map("lead_priority")
+}
+
+enum NextAction {
+  contact
+  follow_up
+  schedule_call
+  send_proposal
+  no_action
+
+  @@map("next_action")
+}
+
+// ==================== CORE TABLES ====================
+
+model Lead {
+  id        String   @id @default(uuid())
+  orgId     String   @map("org_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  name        String
+  email       String?
+  phone       String?
+  profileLink String? @map("profile_link")
+  companyName String? @map("company_name")
+  domain      String?
+  industry    String?
+  employeeCount Int?  @map("employee_count")
+  revenueBand String? @map("revenue_band")
+  location    String?
+  leadSource  String? @map("lead_source")
+  platform    String? // instagram, linkedin, cold_email, twitter, phone, other
+
+  lifecycleStage              LifecycleStage   @default(new_lead) @map("lifecycle_stage")
+  qualificationScore          Float?           @map("qualification_score")
+  temperature                 Temperature?
+  recommendedPath             RecommendedPath? @map("recommended_path")
+  estimatedMonthlyRevenueLeak Float?           @map("estimated_monthly_revenue_leak")
+  buyingSignalScore           Float            @default(0) @map("buying_signal_score")
+  ghostRiskScore              Float            @default(0) @map("ghost_risk_score")
+  interestProfile             Json?            @map("interest_profile")
+  lastStateChange             DateTime?        @map("last_state_change")
+  lastContactedAt             DateTime?        @map("last_contacted_at")
+  nextAction                  NextAction?      @map("next_action")
+  nextActionDue               DateTime?        @map("next_action_due")
+  priority                    LeadPriority?
+
+  deals   Deal[]
+  calls   Call[]
+  clients Client[]
+  leadTags LeadTag[]
+
+  @@index([orgId, lifecycleStage])
+  @@index([orgId, lastStateChange])
+  @@map("leads")
+}
+
+model Deal {
+  id        String   @id @default(uuid())
+  orgId     String   @map("org_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  leadId String @map("lead_id")
+  lead   Lead   @relation(fields: [leadId], references: [id])
+
+  stage              DealStage @default(discovery)
+  dealValue          Float     @map("deal_value")
+  probability        Float     @default(0)
+  lostReason         String?   @map("lost_reason")
+  stageLastChangedAt DateTime? @map("stage_last_changed_at")
+
+  clients  Client[]
+  invoices Invoice[]
+  dealTags  DealTag[]
+
+  @@index([orgId, stage])
+  @@index([leadId])
+  @@map("deals")
+}
+
+model Call {
+  id        String   @id @default(uuid())
+  orgId     String   @map("org_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  leadId      String     @map("lead_id")
+  lead        Lead       @relation(fields: [leadId], references: [id])
+  scheduledAt DateTime   @map("scheduled_at")
+  status      CallStatus @default(booked)
+
+  transcript            String?
+  aiSummary             String? @map("ai_summary")
+  outcome               String?
+  completedAt           DateTime? @map("completed_at")
+  meetingUrl            String?   @map("meeting_url")
+  buyingSignalsDetected Json?   @map("buying_signals_detected")
+
+  @@index([orgId, status])
+  @@index([leadId])
+  @@map("calls")
+}
+
+model Client {
+  id        String   @id @default(uuid())
+  orgId     String   @map("org_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  leadId String @map("lead_id")
+  lead   Lead   @relation(fields: [leadId], references: [id])
+  dealId String @map("deal_id")
+  deal   Deal   @relation(fields: [dealId], references: [id])
+
+  onboardingStatus  String?   @map("onboarding_status")
+  deliveryStatus    String?   @map("delivery_status")
+  renewalDate       DateTime? @map("renewal_date")
+  churnRiskScore    Float     @default(0) @map("churn_risk_score")
+  satisfactionScore Float?    @map("satisfaction_score")
+
+  @@index([orgId])
+  @@map("clients")
+}
+
+model Invoice {
+  id        String   @id @default(uuid())
+  orgId     String   @map("org_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  dealId   String  @map("deal_id")
+  deal     Deal    @relation(fields: [dealId], references: [id])
+  clientId String? @map("client_id")
+
+  amount Float
+  status InvoiceStatus @default(draft)
+  dueDate DateTime?    @map("due_date")
+  paidAt  DateTime?    @map("paid_at")
+
+  contractUrl      String?   @map("contract_url")
+  contractSigned   Boolean   @default(false) @map("contract_signed")
+  contractSignedAt DateTime? @map("contract_signed_at")
+
+  @@index([orgId, status])
+  @@index([dealId])
+  @@map("invoices")
+}
+
+model Activity {
+  id        String   @id @default(uuid())
+  orgId     String   @map("org_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  entityType   String @map("entity_type")
+  entityId     String @map("entity_id")
+  activityType String @map("activity_type")
+  payload      Json?
+  metadata     Json?
+
+  @@index([orgId, entityType, entityId])
+  @@map("activities")
+}
+
+// ==================== NOTES ====================
+
+model Note {
+  id        String   @id @default(uuid())
+  orgId     String   @map("org_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  entityType String @map("entity_type")
+  entityId   String @map("entity_id")
+  body       String
+
+  @@index([orgId, entityType, entityId])
+  @@map("notes")
+}
+
+// ==================== TASKS ====================
+
+model Task {
+  id        String   @id @default(uuid())
+  orgId     String   @map("org_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  title      String
+  entityType String? @map("entity_type")
+  entityId   String? @map("entity_id")
+  dueAt      DateTime? @map("due_at")
+  completedAt DateTime? @map("completed_at")
+  priority   LeadPriority?
+
+  @@index([orgId, completedAt])
+  @@index([orgId, dueAt])
+  @@map("tasks")
+}
+
+// ==================== TEMPLATES ====================
+
+model Template {
+  id        String   @id @default(uuid())
+  orgId     String   @map("org_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  name              String
+  body              String
+  variables         Json?
+  outreachChannels  Json?   @map("outreach_channels")  // e.g. ["cold_email", "linkedin", "instagram"]
+
+  @@index([orgId])
+  @@map("templates")
+}
+
+// ==================== SAVED VIEWS ====================
+
+model SavedView {
+  id        String   @id @default(uuid())
+  orgId     String   @map("org_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  name       String
+  entityType String @map("entity_type")
+  filters    Json
+  sort       String?
+  order      String?
+
+  @@index([orgId, entityType])
+  @@map("saved_views")
+}
+
+// ==================== TAGS ====================
+
+model Tag {
+  id        String   @id @default(uuid())
+  orgId     String   @map("org_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  name  String
+  color String?
+
+  leadTags LeadTag[]
+  dealTags DealTag[]
+
+  @@unique([orgId, name])
+  @@index([orgId])
+  @@map("tags")
+}
+
+model LeadTag {
+  leadId String @map("lead_id")
+  tagId  String @map("tag_id")
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([leadId, tagId])
+  @@map("lead_tags")
+}
+
+model DealTag {
+  dealId String @map("deal_id")
+  tagId  String @map("tag_id")
+  deal   Deal   @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([dealId, tagId])
+  @@map("deal_tags")
+}
+
+// ==================== INTAKE ====================
+
+model LeadIntakeRaw {
+  id        String   @id @default(uuid())
+  orgId     String   @map("org_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  rawPayload    Json         @map("raw_payload")
+  source        IntakeSource
+  fingerprint   String
+
+  duplicateFlag Boolean   @default(false) @map("duplicate_flag")
+  errorFlag     Boolean   @default(false) @map("error_flag")
+  processed     Boolean   @default(false)
+  processedAt   DateTime? @map("processed_at")
+
+  @@index([orgId, fingerprint])
+  @@index([processed, source])
+  @@map("lead_intake_raw")
+}
+
+// ==================== EVENTS ====================
+
+model Event {
+  id        String   @id @default(uuid())
+  orgId     String   @map("org_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  eventType      String  @map("event_type")
+  entityType     String? @map("entity_type")
+  entityId       String? @map("entity_id")
+  payload        Json?
+  metadata       Json?
+  idempotencyKey String? @unique @map("idempotency_key")
+
+  jobs Job[]
+
+  @@index([orgId, createdAt])
+  @@index([eventType, createdAt])
+  @@map("events")
+}
+
+// ==================== JOB QUEUE ====================
+
+model Job {
+  id        String   @id @default(uuid())
+  orgId     String   @map("org_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  eventId String? @map("event_id")
+  event   Event?  @relation(fields: [eventId], references: [id])
+
+  jobType        String    @map("job_type")
+  status         JobStatus @default(pending)
+  idempotencyKey String?   @map("idempotency_key")
+
+  payload     Json?
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(3) @map("max_attempts")
+
+  scheduledFor DateTime  @default(now()) @map("scheduled_for")
+  startedAt    DateTime? @map("started_at")
+  completedAt  DateTime? @map("completed_at")
+
+  lockedAt DateTime? @map("locked_at")
+  lockedBy String?   @map("locked_by")
+
+  lastError String? @map("last_error")
+
+  @@unique([jobType, idempotencyKey])
+  @@index([status, scheduledFor])
+  @@index([orgId, status])
+  @@map("jobs")
+}
+
+model DeadLetterJob {
+  id        String   @id @default(uuid())
+  orgId     String   @map("org_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  originalJobId  String  @map("original_job_id")
+  eventId        String? @map("event_id")
+  jobType        String  @map("job_type")
+  idempotencyKey String? @map("idempotency_key")
+
+  payload     Json?
+  attempts    Int
+  maxAttempts Int     @map("max_attempts")
+  lastError   String? @map("last_error")
+  failedAt    DateTime @default(now()) @map("failed_at")
+
+  @@index([orgId])
+  @@map("dead_letter_jobs")
+}
+
+// ==================== SCHEDULER ====================
+
+model CronTask {
+  id        String   @id @default(uuid())
+  orgId     String?  @map("org_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  taskType       String  @map("task_type")
+  cronExpression String  @map("cron_expression")
+  config         Json?
+  enabled        Boolean   @default(true)
+  lastRunAt      DateTime? @map("last_run_at")
+  nextRunAt      DateTime? @map("next_run_at")
+
+  @@index([enabled, nextRunAt])
+  @@map("cron_tasks")
+}
+
+model ScheduledTask {
+  id        String   @id @default(uuid())
+  orgId     String?  @map("org_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  taskType  String   @map("task_type")
+  executeAt DateTime @map("execute_at")
+  config    Json?
+  executed  Boolean  @default(false)
+
+  @@index([executed, executeAt])
+  @@map("scheduled_tasks")
+}
+
+// ==================== OBSERVABILITY ====================
+
+model SystemLog {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now()) @map("created_at")
+
+  level   LogLevel
+  source  String
+  message String
+  context Json?
+
+  @@index([level, createdAt])
+  @@map("system_logs")
+}

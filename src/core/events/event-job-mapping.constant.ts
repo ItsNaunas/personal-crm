@@ -1,0 +1,29 @@
+import { EventType } from './event-types.enum';
+import { JobType } from '../jobs/job-types.enum';
+
+export const EVENT_JOB_MAP: Partial<Record<EventType, JobType[]>> = {
+  [EventType.LEAD_CREATED]: [JobType.ENRICH_LEAD, JobType.QUALIFY_LEAD],
+  [EventType.LEAD_QUALIFIED]: [JobType.ROUTE_OUTREACH],
+  [EventType.LEAD_REACTIVATED]: [JobType.QUALIFY_LEAD],
+
+  [EventType.BUYING_SIGNAL_HIGH]: [JobType.ESCALATE_LEAD],
+
+  [EventType.CALL_COMPLETED]: [JobType.ANALYZE_CALL],
+
+  [EventType.DEAL_WON]: [JobType.CREATE_INVOICE, JobType.GENERATE_CONTRACT],
+  [EventType.DEAL_STALLED]: [JobType.NUDGE_DEAL],
+
+  [EventType.INVOICE_PAID]: [JobType.CREATE_CLIENT],
+  [EventType.CLIENT_CREATED]: [JobType.START_ONBOARDING],
+
+  [EventType.SCHEDULER_DEAL_DECAY_CHECK]: [JobType.CHECK_DEAL_DECAY],
+  [EventType.SCHEDULER_LEAD_STALE_CHECK]: [JobType.CHECK_LEAD_STALE],
+  [EventType.SCHEDULER_AUTO_PRIORITY_CHECK]: [JobType.AUTO_PRIORITY_CHECK],
+  [EventType.SCHEDULER_GHOST_RISK_RECALC]: [JobType.RECALC_GHOST_RISK],
+  [EventType.SCHEDULER_RENEWAL_REMINDER]: [JobType.SEND_RENEWAL_REMINDER],
+  [EventType.SCHEDULER_WEEKLY_AI_REPORT]: [JobType.GENERATE_WEEKLY_REPORT],
+  [EventType.SCHEDULER_INTEGRITY_WATCHDOG]: [JobType.CHECK_INTEGRITY],
+
+  [EventType.SYSTEM_JOB_DEAD_LETTERED]: [],
+  [EventType.SYSTEM_INTEGRITY_ALERT]: [],
+};
