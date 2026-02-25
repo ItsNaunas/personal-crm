@@ -76,7 +76,7 @@ export default function NewDealPage() {
               className={inputCls}
             >
               <option value="">Select a lead…</option>
-              {leads?.map((l) => (
+              {leads?.data.map((l) => (
                 <option key={l.id} value={l.id}>
                   {l.name} {l.companyName ? `· ${l.companyName}` : ''}
                 </option>

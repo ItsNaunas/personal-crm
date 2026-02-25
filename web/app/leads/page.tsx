@@ -119,7 +119,7 @@ const RECOMMENDED_PATHS: RecommendedPath[] = ['outreach', 'nurture', 'direct_cal
 
 // ─── Sort helpers ─────────────────────────────────────────────────────────────
 
-type SortField = 'name' | 'company' | 'stage' | 'temperature' | 'lastStateChange' | 'updatedAt' | 'createdAt' | 'source' | 'priority' | 'nextAction' | 'recommendedPath';
+type SortField = 'name' | 'company' | 'stage' | 'temperature' | 'lastStateChange' | 'updatedAt' | 'createdAt' | 'source' | 'priority' | 'nextAction' | 'recommendedPath' | 'icpScore' | 'ghostRisk' | 'buyingSignal';
 
 const SORT_FIELD_TO_API: Record<SortField, string> = {
   name: 'name',
@@ -133,6 +133,9 @@ const SORT_FIELD_TO_API: Record<SortField, string> = {
   priority: 'priority',
   nextAction: 'nextAction',
   recommendedPath: 'recommendedPath',
+  icpScore: 'icpScore',
+  ghostRisk: 'ghostRiskScore',
+  buyingSignal: 'buyingSignalScore',
 };
 
 // ─── CSV export ───────────────────────────────────────────────────────────────

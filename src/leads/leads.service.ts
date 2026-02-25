@@ -37,6 +37,9 @@ const SORTABLE_FIELDS: Record<string, string> = {
   temperature: 'temperature',
   nextAction: 'nextAction',
   recommendedPath: 'recommendedPath',
+  icpScore: 'icpScore',
+  ghostRiskScore: 'ghostRiskScore',
+  buyingSignalScore: 'buyingSignalScore',
 };
 
 const PAGE_SIZE_MAX = 200;

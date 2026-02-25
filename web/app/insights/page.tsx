@@ -27,7 +27,7 @@ export default function InsightsPage() {
 
   // High ghost-risk leads — use ghostRiskScore (the correct field)
   const ghostRiskLeads = leads
-    ?.filter((l) => l.ghostRiskScore != null && l.ghostRiskScore > 30)
+    ?.data.filter((l) => l.ghostRiskScore != null && l.ghostRiskScore > 30)
     .sort((a, b) => (b.ghostRiskScore ?? 0) - (a.ghostRiskScore ?? 0))
     .slice(0, 5) ?? [];
 

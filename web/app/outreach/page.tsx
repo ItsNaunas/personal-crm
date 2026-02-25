@@ -18,7 +18,7 @@ export default function OutreachPage() {
   const updateTemperature = useUpdateLeadTemperature();
 
   // Filter to leads with recommendedPath = 'outreach'
-  const outreachLeads = leads?.filter((l) => l.recommendedPath === 'outreach') ?? [];
+  const outreachLeads = leads?.data.filter((l) => l.recommendedPath === 'outreach') ?? [];
 
   return (
     <div>

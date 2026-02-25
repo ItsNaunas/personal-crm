@@ -262,7 +262,7 @@ export default function LeadDetailPage() {
             />
             <div className="max-h-48 overflow-y-auto space-y-1">
               {allLeads
-                ?.filter((l) => l.id !== lead.id && (l.name.toLowerCase().includes(mergeSearch.toLowerCase()) || (l.email ?? '').toLowerCase().includes(mergeSearch.toLowerCase())))
+                ?.data.filter((l) => l.id !== lead.id && (l.name.toLowerCase().includes(mergeSearch.toLowerCase()) || (l.email ?? '').toLowerCase().includes(mergeSearch.toLowerCase())))
                 .slice(0, 10)
                 .map((l) => (
                   <button
