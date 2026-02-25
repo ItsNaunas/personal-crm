@@ -1,5 +1,6 @@
 # ── Stage 1: Build ─────────────────────────────────────────────────────────────
-FROM node:20-alpine AS builder
+# node:20-slim (Debian) used instead of Alpine for ARM64/Prisma compatibility
+FROM node:20-slim AS builder
 
 WORKDIR /app
 
@@ -13,7 +14,7 @@ RUN npx prisma generate
 RUN npm run build
 
 # ── Stage 2: Production image ───────────────────────────────────────────────────
-FROM node:20-alpine
+FROM node:20-slim
 
 WORKDIR /app
 
