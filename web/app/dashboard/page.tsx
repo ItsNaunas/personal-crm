@@ -3,7 +3,6 @@
 import Link from 'next/link';
 import { getPathBarClass } from '@/lib/path-platform-colors';
 import { useDashboard, useLeadsBySource, useLeadsByPath, useStaleLeads } from '@/lib/queries/analytics';
-import { useLeads } from '@/lib/queries/leads';
 import { SkeletonCard } from '@/components/ui/Skeleton';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -103,15 +102,14 @@ function HBarList({
 
 export default function DashboardPage() {
   const { data, isLoading, isError, error, refetch } = useDashboard();
-  const { data: leads } = useLeads();
   const { data: bySource } = useLeadsBySource();
   const { data: byPath } = useLeadsByPath();
   const { data: staleData } = useStaleLeads(7);
 
-  const totalLeads = leads?.length ?? 0;
-  const qualifiedLeads = leads?.filter(
-    (l) => l.lifecycleStage === 'qualified' || l.lifecycleStage === 'proposal' || l.lifecycleStage === 'negotiation',
-  ).length ?? 0;
+  const totalLeads = data?.funnel?.reduce((sum, f) => sum + f.count, 0) ?? 0;
+  const qualifiedLeads = data?.funnel
+    ?.filter((f) => ['qualified', 'proposal', 'negotiation'].includes(f.stage))
+    .reduce((sum, f) => sum + f.count, 0) ?? 0;
   const qualifiedPct = totalLeads > 0 ? Math.round((qualifiedLeads / totalLeads) * 100) : 0;
 
   const maxFunnelCount = data?.funnel?.reduce((m, f) => Math.max(m, f.count), 1) ?? 1;

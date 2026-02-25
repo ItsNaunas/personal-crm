@@ -2,15 +2,19 @@
 
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   useLeads,
   useDeleteLead,
   useBulkUpdateLeadStage,
   useBulkUpdateLeadPath,
   useBulkUpdateLeadTemperature,
+  useBulkUpdateLeadPlatform,
+  useBulkUpdateLeadPriority,
+  useBulkUpdateLeadSource,
   useUpdateLeadTemperature,
   useBulkDeleteLeads,
+  useSelectAllMatchingLeads,
 } from '@/lib/queries/leads';
 import { useSavedViews, useCreateSavedView, useDeleteSavedView } from '@/lib/queries/saved-views';
 import { SkeletonTable } from '@/components/ui/Skeleton';
@@ -37,9 +41,12 @@ import {
   Columns,
   X,
   Search,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { getContactUrl, getContactLabel, getPlatformIcon } from '@/lib/platform-utils';
 import { getPathBadgeClass, getPlatformBadgeClass } from '@/lib/path-platform-colors';
+import toast from 'react-hot-toast';
 
 const NEXT_ACTION_LABELS: Record<NextAction, string> = {
   contact: 'Contact',
@@ -112,31 +119,21 @@ const RECOMMENDED_PATHS: RecommendedPath[] = ['outreach', 'nurture', 'direct_cal
 
 // ─── Sort helpers ─────────────────────────────────────────────────────────────
 
-type SortField = 'name' | 'company' | 'stage' | 'temperature' | 'icpScore' | 'ghostRisk' | 'buyingSignal' | 'lastStateChange' | 'updatedAt' | 'createdAt' | 'source';
+type SortField = 'name' | 'company' | 'stage' | 'temperature' | 'lastStateChange' | 'updatedAt' | 'createdAt' | 'source' | 'priority' | 'nextAction' | 'recommendedPath';
 
-function sortLeads(leads: Lead[], field: SortField, dir: 'asc' | 'desc'): Lead[] {
-  const factor = dir === 'asc' ? 1 : -1;
-  return [...leads].sort((a, b) => {
-    let av: string | number | null = null;
-    let bv: string | number | null = null;
-    switch (field) {
-      case 'name': av = a.name; bv = b.name; break;
-      case 'company': av = a.companyName ?? ''; bv = b.companyName ?? ''; break;
-      case 'stage': av = a.lifecycleStage; bv = b.lifecycleStage; break;
-      case 'temperature': av = a.temperature ?? ''; bv = b.temperature ?? ''; break;
-      case 'icpScore': av = a.qualificationScore ?? a.icpScore ?? -1; bv = b.qualificationScore ?? b.icpScore ?? -1; break;
-      case 'ghostRisk': av = a.ghostRiskScore ?? -1; bv = b.ghostRiskScore ?? -1; break;
-      case 'buyingSignal': av = a.buyingSignalScore ?? -1; bv = b.buyingSignalScore ?? -1; break;
-      case 'lastStateChange': av = a.lastStateChange ?? ''; bv = b.lastStateChange ?? ''; break;
-      case 'updatedAt': av = a.updatedAt; bv = b.updatedAt; break;
-      case 'createdAt': av = a.createdAt; bv = b.createdAt; break;
-      case 'source': av = a.leadSource ?? ''; bv = b.leadSource ?? ''; break;
-    }
-    if (av === bv) return 0;
-    if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * factor;
-    return String(av).localeCompare(String(bv)) * factor;
-  });
-}
+const SORT_FIELD_TO_API: Record<SortField, string> = {
+  name: 'name',
+  company: 'name',
+  stage: 'lifecycleStage',
+  temperature: 'temperature',
+  lastStateChange: 'lastStateChange',
+  updatedAt: 'updatedAt',
+  createdAt: 'createdAt',
+  source: 'createdAt',
+  priority: 'priority',
+  nextAction: 'nextAction',
+  recommendedPath: 'recommendedPath',
+};
 
 // ─── CSV export ───────────────────────────────────────────────────────────────
 
@@ -161,6 +158,253 @@ function exportCsv(leads: Lead[]) {
   URL.revokeObjectURL(url);
 }
 
+// ─── Memoized row (only re-renders when lead, index, isSelected, or visibleCols change)
+type LeadTableRowProps = {
+  lead: Lead;
+  index: number;
+  isSelected: boolean;
+  visibleCols: ColumnKey[];
+  onRowClick: (e: React.MouseEvent, lead: Lead, index: number) => void;
+  onRowDoubleClick: (e: React.MouseEvent, lead: Lead) => void;
+  onCheckboxChange: (leadId: string, index: number) => void;
+  updateTemperature: ReturnType<typeof useUpdateLeadTemperature>;
+  deleteLead: ReturnType<typeof useDeleteLead>;
+};
+
+const LeadTableRow = React.memo(function LeadTableRow({
+  lead,
+  index,
+  isSelected,
+  visibleCols,
+  onRowClick,
+  onRowDoubleClick,
+  onCheckboxChange,
+  updateTemperature,
+  deleteLead,
+}: LeadTableRowProps) {
+  const vis = (key: ColumnKey) => visibleCols.includes(key);
+  const stageMeta = lifecycleStageBadge(lead.lifecycleStage);
+  const tempMeta = lead.temperature ? temperatureBadge(lead.temperature) : null;
+  const score = lead.qualificationScore ?? lead.icpScore;
+  const ghostRisk = lead.ghostRiskScore ?? 0;
+
+  return (
+    <tr
+      className={`cursor-pointer hover:bg-gray-800/50 transition ${isSelected ? 'bg-brand-500/5' : ''}`}
+      onClick={(e) => onRowClick(e, lead, index)}
+      onDoubleClick={(e) => {
+        if (!(e.target as HTMLElement).closest('a, button, input, select, [role="button"]')) {
+          onRowDoubleClick(e, lead);
+        }
+      }}
+    >
+      <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+        <input
+          type="checkbox"
+          checked={isSelected}
+          onChange={() => onCheckboxChange(lead.id, index)}
+          className="accent-brand-500"
+        />
+      </td>
+      {vis('name') && (
+        <td className="px-4 py-3">
+          <p className="font-medium text-white">{lead.name}</p>
+          {lead.email && <p className="text-xs text-gray-500">{lead.email}</p>}
+        </td>
+      )}
+      {vis('contact') && (
+        <td className="px-4 py-3">
+          {(() => {
+            const url = getContactUrl(lead.platform, lead.profileLink, lead.email);
+            const label = getContactLabel(lead.platform, lead.profileLink, lead.email);
+            return url ? (
+              <a
+                href={url}
+                target={url.startsWith('mailto') ? undefined : '_blank'}
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium bg-green-900/40 text-green-400 hover:bg-green-900/70 transition"
+              >
+                {getPlatformIcon(lead.platform)} {label}
+              </a>
+            ) : <span className="text-gray-600">—</span>;
+          })()}
+        </td>
+      )}
+      {vis('nextAction') && (
+        <td className="px-4 py-3">
+          {lead.nextAction ? (
+            <Badge
+              label={nextActionBadge(lead.nextAction).label}
+              variant={nextActionBadge(lead.nextAction).variant}
+            />
+          ) : (
+            <span className="text-xs text-gray-600">—</span>
+          )}
+        </td>
+      )}
+      {vis('priority') && (
+        <td className="px-4 py-3">
+          {lead.priority ? (
+            <Badge
+              label={priorityBadge(lead.priority).label}
+              variant={priorityBadge(lead.priority).variant}
+            />
+          ) : <span className="text-gray-600">—</span>}
+        </td>
+      )}
+      {vis('company') && (
+        <td className="px-4 py-3 text-gray-400">
+          {lead.companyName ?? <span className="text-gray-600">—</span>}
+        </td>
+      )}
+      {vis('phone') && (
+        <td className="px-4 py-3 text-gray-400">
+          {lead.phone ?? <span className="text-gray-600">—</span>}
+        </td>
+      )}
+      {vis('stage') && (
+        <td className="px-4 py-3">
+          <Badge label={stageMeta.label} variant={stageMeta.variant} />
+        </td>
+      )}
+      {vis('temperature') && (
+        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+          <TemperatureSelect
+            value={(lead.temperature ?? '') as Temperature | ''}
+            onChange={(val) => updateTemperature.mutate({ id: lead.id, temperature: val || null })}
+            disabled={updateTemperature.isPending}
+          />
+        </td>
+      )}
+      {vis('source') && (
+        <td className="px-4 py-3 text-xs text-gray-400">
+          {lead.leadSource ?? <span className="text-gray-600">—</span>}
+        </td>
+      )}
+      {vis('platform') && (
+        <td className="px-4 py-3">
+          {lead.platform
+            ? <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${getPlatformBadgeClass(lead.platform)}`}>{lead.platform}</span>
+            : <span className="text-gray-600">—</span>}
+        </td>
+      )}
+      {vis('industry') && (
+        <td className="px-4 py-3 text-xs text-gray-400">
+          {lead.industry ?? <span className="text-gray-600">—</span>}
+        </td>
+      )}
+      {vis('location') && (
+        <td className="px-4 py-3 text-xs text-gray-400">
+          {lead.location ?? <span className="text-gray-600">—</span>}
+        </td>
+      )}
+      {vis('recommendedPath') && (
+        <td className="px-4 py-3">
+          {lead.recommendedPath
+            ? <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${getPathBadgeClass(lead.recommendedPath)}`}>{lead.recommendedPath.replace('_', ' ')}</span>
+            : <span className="text-gray-600">—</span>}
+        </td>
+      )}
+      {vis('icpScore') && (
+        <td className="px-4 py-3 text-gray-400">
+          {score != null ? (
+            <span className={`font-medium ${score >= 70 ? 'text-green-400' : score >= 40 ? 'text-yellow-400' : 'text-gray-400'}`}>
+              {Math.round(score)}
+            </span>
+          ) : <span className="text-gray-600">—</span>}
+        </td>
+      )}
+      {vis('ghostRisk') && (
+        <td className="px-4 py-3">
+          {lead.ghostRiskScore != null ? (
+            <span className={`font-medium ${ghostRisk >= 60 ? 'text-red-400' : ghostRisk >= 30 ? 'text-yellow-400' : 'text-gray-400'}`}>
+              {Math.round(ghostRisk)}
+            </span>
+          ) : <span className="text-gray-600">—</span>}
+        </td>
+      )}
+      {vis('buyingSignal') && (
+        <td className="px-4 py-3">
+          {lead.buyingSignalScore != null ? (
+            <span className={`font-medium ${lead.buyingSignalScore >= 75 ? 'text-green-400' : 'text-gray-400'}`}>
+              {Math.round(lead.buyingSignalScore)}
+            </span>
+          ) : <span className="text-gray-600">—</span>}
+        </td>
+      )}
+      {vis('dealCount') && (
+        <td className="px-4 py-3 text-gray-400">
+          {lead._count?.deals ?? 0}
+        </td>
+      )}
+      {vis('domain') && (
+        <td className="px-4 py-3 text-xs text-gray-400">
+          {lead.domain ?? <span className="text-gray-600">—</span>}
+        </td>
+      )}
+      {vis('profileLink') && (
+        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+          {lead.profileLink ? (
+            <a
+              href={lead.profileLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={lead.profileLink}
+              className="inline-flex items-center gap-1 text-xs text-brand-400 hover:text-brand-300 hover:underline transition max-w-[140px] truncate"
+            >
+              <ExternalLink className="h-3 w-3 shrink-0" />
+              <span className="truncate">
+                {(() => {
+                  try {
+                    const u = new URL(lead.profileLink!);
+                    const parts = u.pathname.replace(/\/$/, '').split('/').filter(Boolean);
+                    return parts[parts.length - 1] || u.hostname;
+                  } catch {
+                    return lead.profileLink;
+                  }
+                })()}
+              </span>
+            </a>
+          ) : <span className="text-gray-600">—</span>}
+        </td>
+      )}
+      {vis('lastStateChange') && (
+        <td className="px-4 py-3 text-xs text-gray-500">
+          {lead.lastStateChange
+            ? new Date(lead.lastStateChange).toLocaleDateString()
+            : <span className="text-gray-600">—</span>}
+        </td>
+      )}
+      {vis('updatedAt') && (
+        <td className="px-4 py-3 text-xs text-gray-500">
+          {new Date(lead.updatedAt).toLocaleDateString()}
+        </td>
+      )}
+      {vis('createdAt') && (
+        <td className="px-4 py-3 text-xs text-gray-500">
+          {new Date(lead.createdAt).toLocaleDateString()}
+        </td>
+      )}
+      <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+        <button
+          type="button"
+          onClick={() => {
+            if (window.confirm(`Delete lead "${lead.name}"? This cannot be undone.`)) {
+              deleteLead.mutate(lead.id);
+            }
+          }}
+          disabled={deleteLead.isPending}
+          className="inline-flex items-center rounded p-1.5 text-gray-500 hover:bg-red-900/30 hover:text-red-400 transition disabled:opacity-50"
+          title="Delete lead"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </td>
+    </tr>
+  );
+});
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function LeadsPage() {
@@ -178,9 +422,12 @@ export default function LeadsPage() {
   const [searchInput, setSearchInput] = useState(searchParams.get('q') || '');
   const [q, setQ] = useState(searchParams.get('q') || '');
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSelectedIndexRef = useRef<number | null>(null);
 
   const [sortField, setSortField] = useState<SortField>('createdAt');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 50;
 
   const [visibleCols, setVisibleCols] = useState<ColumnKey[]>(DEFAULT_VISIBLE);
   const [colPickerOpen, setColPickerOpen] = useState(false);
@@ -189,12 +436,19 @@ export default function LeadsPage() {
   const [bulkStage, setBulkStage] = useState<LifecycleStage | ''>('');
   const [bulkPath, setBulkPath] = useState<RecommendedPath | ''>('');
   const [bulkTemperature, setBulkTemperature] = useState<Temperature | ''>('');
+  const [bulkPlatform, setBulkPlatform] = useState('');
+  const [bulkPriority, setBulkPriority] = useState<LeadPriority | ''>('');
+  const [bulkLeadSource, setBulkLeadSource] = useState('');
 
   const bulkUpdateStage = useBulkUpdateLeadStage();
   const bulkUpdatePath = useBulkUpdateLeadPath();
   const bulkUpdateTemperature = useBulkUpdateLeadTemperature();
+  const bulkUpdatePlatform = useBulkUpdateLeadPlatform();
+  const bulkUpdatePriority = useBulkUpdateLeadPriority();
+  const bulkUpdateLeadSource = useBulkUpdateLeadSource();
   const updateTemperature = useUpdateLeadTemperature();
   const bulkDelete = useBulkDeleteLeads();
+  const selectAllMatching = useSelectAllMatchingLeads();
   const { data: savedViews } = useSavedViews('lead');
   const createSavedView = useCreateSavedView();
   const deleteSavedView = useDeleteSavedView();
@@ -226,6 +480,7 @@ export default function LeadsPage() {
     const params = new URLSearchParams(searchParams.toString());
     if (value) params.set(key, value);
     else params.delete(key);
+    setPage(1);
     router.push(`/leads?${params.toString()}`);
   }
 
@@ -234,6 +489,7 @@ export default function LeadsPage() {
     if (searchTimeout.current) clearTimeout(searchTimeout.current);
     searchTimeout.current = setTimeout(() => {
       setQ(val);
+      setPage(1);
       const params = new URLSearchParams(searchParams.toString());
       if (val) params.set('q', val);
       else params.delete('q');
@@ -241,7 +497,7 @@ export default function LeadsPage() {
     }, 350);
   }
 
-  const { data: rawLeads, isLoading, isError, error, refetch } = useLeads({
+  const { data: pagedResult, isLoading, isError, error, refetch } = useLeads({
     lifecycleStage: lifecycleStage || undefined,
     temperature: temperature || undefined,
     priority: priority || undefined,
@@ -250,39 +506,110 @@ export default function LeadsPage() {
     platform: platform || undefined,
     leadSource: leadSource || undefined,
     q: q || undefined,
+    sort: SORT_FIELD_TO_API[sortField],
+    order: sortDir,
+    page,
+    pageSize: PAGE_SIZE,
   });
   const deleteLead = useDeleteLead();
 
-  const leads = useMemo(
-    () => (rawLeads ? sortLeads(rawLeads, sortField, sortDir) : []),
-    [rawLeads, sortField, sortDir],
-  );
+  const leads = pagedResult?.data ?? [];
+  const totalLeads = pagedResult?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalLeads / PAGE_SIZE));
 
   function toggleSort(field: SortField) {
+    setPage(1);
     if (sortField === field) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
     else { setSortField(field); setSortDir('desc'); }
   }
 
-  function toggleSelect(id: string) {
+  const toggleSelect = useCallback((id: string) => {
     setSelectedIds((s) => {
       const n = new Set(s);
       if (n.has(id)) n.delete(id); else n.add(id);
       return n;
     });
-  }
+  }, []);
 
   function toggleSelectAll() {
-    if (selectedIds.size === leads.length) setSelectedIds(new Set());
+    if (selectedIds.size === leads.length && leads.length > 0) setSelectedIds(new Set());
     else setSelectedIds(new Set(leads.map((l) => l.id)));
   }
+
+  const handleRowClick = useCallback((e: React.MouseEvent, lead: Lead, index: number) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('a, button, input, select, [role="button"]')) return;
+
+    if (e.shiftKey) {
+      e.preventDefault();
+      const anchor = lastSelectedIndexRef.current ?? index;
+      const start = Math.min(anchor, index);
+      const end = Math.max(anchor, index);
+      setSelectedIds((prev) => {
+        const ids = leads.slice(start, end + 1).map((l) => l.id);
+        return new Set(ids);
+      });
+      lastSelectedIndexRef.current = index;
+      return;
+    }
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      toggleSelect(lead.id);
+    // Plain click: select this row only (so you can then Shift+click or Ctrl+click for multi-select)
+      lastSelectedIndexRef.current = index;
+      return;
+    }
+    e.preventDefault();
+    setSelectedIds(new Set([lead.id]));
+    lastSelectedIndexRef.current = index;
+  }, [leads, toggleSelect]);
+
+  const handleRowDoubleClick = useCallback((_e: React.MouseEvent, lead: Lead) => {
+    router.push(`/leads/${lead.id}`);
+  }, [router]);
+
+  const handleCheckboxChange = useCallback((leadId: string, index: number) => {
+    toggleSelect(leadId);
+    lastSelectedIndexRef.current = index;
+  }, [toggleSelect]);
 
   const clearFilters = useCallback(() => {
     setSearchInput('');
     setQ('');
+    setPage(1);
     router.push('/leads');
   }, [router]);
 
   const hasFilters = !!(lifecycleStage || temperature || priority || nextAction || recommendedPath || platform || leadSource || q);
+
+  const currentFiltersForSelectAll = useMemo(
+    () => ({
+      lifecycleStage: lifecycleStage || undefined,
+      temperature: temperature || undefined,
+      priority: priority || undefined,
+      nextAction: nextAction || undefined,
+      recommendedPath: recommendedPath || undefined,
+      platform: platform || undefined,
+      leadSource: leadSource || undefined,
+      q: q || undefined,
+      sort: SORT_FIELD_TO_API[sortField],
+      order: sortDir,
+    }),
+    [lifecycleStage, temperature, priority, nextAction, recommendedPath, platform, leadSource, q, sortField, sortDir],
+  );
+
+  function handleSelectAllMatching() {
+    selectAllMatching.mutate(currentFiltersForSelectAll, {
+      onSuccess: (result) => {
+        setSelectedIds(new Set(result.ids));
+        if (result.ids.length === result.total) {
+          toast.success(`Selected ${result.ids.length} lead${result.ids.length !== 1 ? 's' : ''}`);
+        } else {
+          toast.success(`Selected ${result.ids.length} of ${result.total} leads (max 2000)`);
+        }
+      },
+    });
+  }
 
   function SortIcon({ field }: { field: SortField }) {
     if (sortField !== field) return <ChevronsUpDown className="inline h-3 w-3 ml-1 text-gray-600" />;
@@ -455,6 +782,14 @@ export default function LeadsPage() {
               Save view
             </button>
           )}
+          <button
+            onClick={handleSelectAllMatching}
+            disabled={selectAllMatching.isPending || totalLeads === 0}
+            className="text-xs text-brand-400 hover:text-brand-300 transition underline disabled:opacity-50"
+            title="Select all leads matching current filters (up to 2000)"
+          >
+            {selectAllMatching.isPending ? 'Loading…' : 'Select all matching'}
+          </button>
           {saveViewOpen && (
             <div className="flex items-center gap-1.5">
               <input
@@ -600,19 +935,73 @@ export default function LeadsPage() {
                 className="min-w-[120px]"
               />
             </div>
-            {(bulkStage || bulkPath || bulkTemperature) && (
+            <div className="flex items-center gap-2">
+              <select
+                value={bulkPlatform}
+                onChange={(e) => setBulkPlatform(e.target.value)}
+                className="rounded border border-gray-600 bg-gray-700 px-2 py-1 text-xs text-gray-200 min-w-[120px]"
+              >
+                <option value="">Set platform…</option>
+                <option value="linkedin">LinkedIn</option>
+                <option value="cold_email">Cold email</option>
+                <option value="instagram">Instagram</option>
+                <option value="tiktok">TikTok</option>
+                <option value="twitter">Twitter</option>
+                <option value="phone">Phone</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <select
+                value={bulkPriority}
+                onChange={(e) => setBulkPriority(e.target.value as LeadPriority)}
+                className="rounded border border-gray-600 bg-gray-700 px-2 py-1 text-xs text-gray-200"
+              >
+                <option value="">Set priority…</option>
+                {(Object.keys(PRIORITY_LABELS) as LeadPriority[]).map((p) => (
+                  <option key={p} value={p}>{PRIORITY_LABELS[p]}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <select
+                value={bulkLeadSource}
+                onChange={(e) => setBulkLeadSource(e.target.value)}
+                className="rounded border border-gray-600 bg-gray-700 px-2 py-1 text-xs text-gray-200 min-w-[110px]"
+              >
+                <option value="">Set source…</option>
+                <option value="Referral">Referral</option>
+                <option value="Event">Event</option>
+                <option value="Cold">Cold outreach</option>
+                <option value="Content">Content</option>
+                <option value="Paid">Paid ad</option>
+                <option value="Inbound">Inbound</option>
+                <option value="Import">Import</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+            {(bulkStage || bulkPath || bulkTemperature || bulkPlatform || bulkPriority || bulkLeadSource) && (
               <button
-                disabled={bulkUpdateStage.isPending || bulkUpdatePath.isPending || bulkUpdateTemperature.isPending}
+                disabled={
+                  bulkUpdateStage.isPending || bulkUpdatePath.isPending || bulkUpdateTemperature.isPending ||
+                  bulkUpdatePlatform.isPending || bulkUpdatePriority.isPending || bulkUpdateLeadSource.isPending
+                }
                 onClick={async () => {
                   const ids = [...selectedIds];
                   const promises: Promise<unknown>[] = [];
                   if (bulkStage) promises.push(bulkUpdateStage.mutateAsync({ leadIds: ids, stage: bulkStage as LifecycleStage }));
                   if (bulkPath) promises.push(bulkUpdatePath.mutateAsync({ leadIds: ids, recommendedPath: bulkPath as RecommendedPath }));
                   if (bulkTemperature) promises.push(bulkUpdateTemperature.mutateAsync({ leadIds: ids, temperature: bulkTemperature as Temperature }));
+                  if (bulkPlatform) promises.push(bulkUpdatePlatform.mutateAsync({ leadIds: ids, platform: bulkPlatform }));
+                  if (bulkPriority) promises.push(bulkUpdatePriority.mutateAsync({ leadIds: ids, priority: bulkPriority as LeadPriority }));
+                  if (bulkLeadSource) promises.push(bulkUpdateLeadSource.mutateAsync({ leadIds: ids, leadSource: bulkLeadSource }));
                   await Promise.all(promises);
                   setBulkStage('');
                   setBulkPath('');
                   setBulkTemperature('');
+                  setBulkPlatform('');
+                  setBulkPriority('');
+                  setBulkLeadSource('');
                   setSelectedIds(new Set());
                 }}
                 className="rounded px-3 py-1 text-xs font-medium bg-brand-500 text-white hover:bg-brand-600 disabled:opacity-50"
@@ -649,7 +1038,7 @@ export default function LeadsPage() {
         {isLoading && <SkeletonTable rows={6} cols={8} />}
         {isError && <ErrorState message={(error as Error)?.message} onRetry={() => refetch()} />}
 
-        {!isLoading && !isError && (!leads || leads.length === 0) && (
+        {!isLoading && !isError && leads.length === 0 && (
           <EmptyState
             icon="👥"
             title="No leads yet"
@@ -665,7 +1054,7 @@ export default function LeadsPage() {
           />
         )}
 
-        {!isLoading && !isError && leads && leads.length > 0 && (
+        {!isLoading && !isError && leads.length > 0 && (
           <div className="overflow-x-auto rounded-xl border border-gray-800">
             <table className="w-full text-sm whitespace-nowrap">
               <thead className="border-b border-gray-800 bg-gray-900">
@@ -673,7 +1062,7 @@ export default function LeadsPage() {
                   <th className="px-3 py-3">
                     <input
                       type="checkbox"
-                      checked={selectedIds.size === leads.length && leads.length > 0}
+                      checked={leads.length > 0 && selectedIds.size === leads.length}
                       onChange={toggleSelectAll}
                       className="accent-brand-500"
                     />
@@ -704,241 +1093,81 @@ export default function LeadsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-800 bg-gray-900/40">
-                {leads.map((lead) => {
-                  const stageMeta = lifecycleStageBadge(lead.lifecycleStage);
-                  const tempMeta = lead.temperature ? temperatureBadge(lead.temperature) : null;
-                  const score = lead.qualificationScore ?? lead.icpScore;
-                  const ghostRisk = lead.ghostRiskScore ?? 0;
-                  const isSelected = selectedIds.has(lead.id);
-
-                  return (
-                    <tr
-                      key={lead.id}
-                      className={`hover:bg-gray-800/50 transition ${isSelected ? 'bg-brand-500/5' : ''}`}
-                    >
-                      <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => toggleSelect(lead.id)}
-                          className="accent-brand-500"
-                        />
-                      </td>
-                      {vis('name') && (
-                        <td
-                          className="px-4 py-3 cursor-pointer"
-                          onClick={() => router.push(`/leads/${lead.id}`)}
-                        >
-                          <p className="font-medium text-white">{lead.name}</p>
-                          {lead.email && <p className="text-xs text-gray-500">{lead.email}</p>}
-                        </td>
-                      )}
-                      {vis('contact') && (
-                        <td className="px-4 py-3">
-                          {(() => {
-                            const url = getContactUrl(lead.platform, lead.profileLink, lead.email);
-                            const label = getContactLabel(lead.platform, lead.profileLink, lead.email);
-                            return url ? (
-                              <a
-                                href={url}
-                                target={url.startsWith('mailto') ? undefined : '_blank'}
-                                rel="noopener noreferrer"
-                                onClick={(e) => e.stopPropagation()}
-                                className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium bg-green-900/40 text-green-400 hover:bg-green-900/70 transition"
-                              >
-                                {getPlatformIcon(lead.platform)} {label}
-                              </a>
-                            ) : <span className="text-gray-600">—</span>;
-                          })()}
-                        </td>
-                      )}
-                      {vis('nextAction') && (
-                        <td className="px-4 py-3 cursor-pointer" onClick={() => router.push(`/leads/${lead.id}`)}>
-                          {lead.nextAction ? (
-                            <Badge
-                              label={nextActionBadge(lead.nextAction).label}
-                              variant={nextActionBadge(lead.nextAction).variant}
-                            />
-                          ) : (
-                            <span className="text-xs text-gray-600">—</span>
-                          )}
-                        </td>
-                      )}
-                      {vis('priority') && (
-                        <td className="px-4 py-3 cursor-pointer" onClick={() => router.push(`/leads/${lead.id}`)}>
-                          {lead.priority ? (
-                            <Badge
-                              label={priorityBadge(lead.priority).label}
-                              variant={priorityBadge(lead.priority).variant}
-                            />
-                          ) : <span className="text-gray-600">—</span>}
-                        </td>
-                      )}
-                      {vis('company') && (
-                        <td className="px-4 py-3 text-gray-400 cursor-pointer" onClick={() => router.push(`/leads/${lead.id}`)}>
-                          {lead.companyName ?? <span className="text-gray-600">—</span>}
-                        </td>
-                      )}
-                      {vis('phone') && (
-                        <td className="px-4 py-3 text-gray-400 cursor-pointer" onClick={() => router.push(`/leads/${lead.id}`)}>
-                          {lead.phone ?? <span className="text-gray-600">—</span>}
-                        </td>
-                      )}
-                      {vis('stage') && (
-                        <td className="px-4 py-3 cursor-pointer" onClick={() => router.push(`/leads/${lead.id}`)}>
-                          <Badge label={stageMeta.label} variant={stageMeta.variant} />
-                        </td>
-                      )}
-                      {vis('temperature') && (
-                        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                          <TemperatureSelect
-                            value={(lead.temperature ?? '') as Temperature | ''}
-                            onChange={(val) => updateTemperature.mutate({ id: lead.id, temperature: val || null })}
-                            disabled={updateTemperature.isPending}
-                          />
-                        </td>
-                      )}
-                      {vis('source') && (
-                        <td className="px-4 py-3 text-xs text-gray-400 cursor-pointer" onClick={() => router.push(`/leads/${lead.id}`)}>
-                          {lead.leadSource ?? <span className="text-gray-600">—</span>}
-                        </td>
-                      )}
-                      {vis('platform') && (
-                        <td className="px-4 py-3 cursor-pointer" onClick={() => router.push(`/leads/${lead.id}`)}>
-                          {lead.platform
-                            ? <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${getPlatformBadgeClass(lead.platform)}`}>{lead.platform}</span>
-                            : <span className="text-gray-600">—</span>}
-                        </td>
-                      )}
-                      {vis('industry') && (
-                        <td className="px-4 py-3 text-xs text-gray-400 cursor-pointer" onClick={() => router.push(`/leads/${lead.id}`)}>
-                          {lead.industry ?? <span className="text-gray-600">—</span>}
-                        </td>
-                      )}
-                      {vis('location') && (
-                        <td className="px-4 py-3 text-xs text-gray-400 cursor-pointer" onClick={() => router.push(`/leads/${lead.id}`)}>
-                          {lead.location ?? <span className="text-gray-600">—</span>}
-                        </td>
-                      )}
-                      {vis('recommendedPath') && (
-                        <td className="px-4 py-3 cursor-pointer" onClick={() => router.push(`/leads/${lead.id}`)}>
-                          {lead.recommendedPath
-                            ? <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${getPathBadgeClass(lead.recommendedPath)}`}>{lead.recommendedPath.replace('_', ' ')}</span>
-                            : <span className="text-gray-600">—</span>}
-                        </td>
-                      )}
-                      {vis('icpScore') && (
-                        <td className="px-4 py-3 text-gray-400 cursor-pointer" onClick={() => router.push(`/leads/${lead.id}`)}>
-                          {score != null ? (
-                            <span className={`font-medium ${score >= 70 ? 'text-green-400' : score >= 40 ? 'text-yellow-400' : 'text-gray-400'}`}>
-                              {Math.round(score)}
-                            </span>
-                          ) : <span className="text-gray-600">—</span>}
-                        </td>
-                      )}
-                      {vis('ghostRisk') && (
-                        <td className="px-4 py-3 cursor-pointer" onClick={() => router.push(`/leads/${lead.id}`)}>
-                          {lead.ghostRiskScore != null ? (
-                            <span className={`font-medium ${ghostRisk >= 60 ? 'text-red-400' : ghostRisk >= 30 ? 'text-yellow-400' : 'text-gray-400'}`}>
-                              {Math.round(ghostRisk)}
-                            </span>
-                          ) : <span className="text-gray-600">—</span>}
-                        </td>
-                      )}
-                      {vis('buyingSignal') && (
-                        <td className="px-4 py-3 cursor-pointer" onClick={() => router.push(`/leads/${lead.id}`)}>
-                          {lead.buyingSignalScore != null ? (
-                            <span className={`font-medium ${lead.buyingSignalScore >= 75 ? 'text-green-400' : 'text-gray-400'}`}>
-                              {Math.round(lead.buyingSignalScore)}
-                            </span>
-                          ) : <span className="text-gray-600">—</span>}
-                        </td>
-                      )}
-                      {vis('dealCount') && (
-                        <td className="px-4 py-3 text-gray-400 cursor-pointer" onClick={() => router.push(`/leads/${lead.id}`)}>
-                          {lead._count?.deals ?? 0}
-                        </td>
-                      )}
-                      {vis('domain') && (
-                        <td className="px-4 py-3 text-xs text-gray-400 cursor-pointer" onClick={() => router.push(`/leads/${lead.id}`)}>
-                          {lead.domain ?? <span className="text-gray-600">—</span>}
-                        </td>
-                      )}
-                      {vis('profileLink') && (
-                        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                          {lead.profileLink ? (
-                            <a
-                              href={lead.profileLink}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              title={lead.profileLink}
-                              className="inline-flex items-center gap-1 text-xs text-brand-400 hover:text-brand-300 hover:underline transition max-w-[140px] truncate"
-                            >
-                              <ExternalLink className="h-3 w-3 shrink-0" />
-                              <span className="truncate">
-                                {(() => {
-                                  try {
-                                    const u = new URL(lead.profileLink);
-                                    const parts = u.pathname.replace(/\/$/, '').split('/').filter(Boolean);
-                                    return parts[parts.length - 1] || u.hostname;
-                                  } catch {
-                                    return lead.profileLink;
-                                  }
-                                })()}
-                              </span>
-                            </a>
-                          ) : <span className="text-gray-600">—</span>}
-                        </td>
-                      )}
-                      {vis('lastStateChange') && (
-                        <td className="px-4 py-3 text-xs text-gray-500 cursor-pointer" onClick={() => router.push(`/leads/${lead.id}`)}>
-                          {lead.lastStateChange
-                            ? new Date(lead.lastStateChange).toLocaleDateString()
-                            : <span className="text-gray-600">—</span>}
-                        </td>
-                      )}
-                      {vis('updatedAt') && (
-                        <td className="px-4 py-3 text-xs text-gray-500 cursor-pointer" onClick={() => router.push(`/leads/${lead.id}`)}>
-                          {new Date(lead.updatedAt).toLocaleDateString()}
-                        </td>
-                      )}
-                      {vis('createdAt') && (
-                        <td className="px-4 py-3 text-xs text-gray-500 cursor-pointer" onClick={() => router.push(`/leads/${lead.id}`)}>
-                          {new Date(lead.createdAt).toLocaleDateString()}
-                        </td>
-                      )}
-                      <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (window.confirm(`Delete lead "${lead.name}"? This cannot be undone.`)) {
-                              deleteLead.mutate(lead.id);
-                            }
-                          }}
-                          disabled={deleteLead.isPending}
-                          className="inline-flex items-center rounded p-1.5 text-gray-500 hover:bg-red-900/30 hover:text-red-400 transition disabled:opacity-50"
-                          title="Delete lead"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
+                {leads.map((lead, index) => (
+                  <LeadTableRow
+                    key={lead.id}
+                    lead={lead}
+                    index={index}
+                    isSelected={selectedIds.has(lead.id)}
+                    visibleCols={visibleCols}
+                    onRowClick={handleRowClick}
+                    onRowDoubleClick={handleRowDoubleClick}
+                    onCheckboxChange={handleCheckboxChange}
+                    updateTemperature={updateTemperature}
+                    deleteLead={deleteLead}
+                  />
+                ))}
               </tbody>
             </table>
           </div>
         )}
 
-        {!isLoading && !isError && leads && leads.length > 0 && (
-          <div className="flex items-center justify-between text-xs text-gray-600">
-            <span>{leads.length} lead{leads.length !== 1 ? 's' : ''}</span>
-            <button
-              onClick={() => exportCsv(leads)}
-              className="text-gray-500 hover:text-gray-300 underline transition"
-            >
-              Export all as CSV
-            </button>
+        {!isLoading && !isError && totalLeads > 0 && (
+          <div className="flex items-center justify-between gap-4 text-xs text-gray-500">
+            <span>
+              {totalLeads} lead{totalLeads !== 1 ? 's' : ''}
+              {totalPages > 1 && ` · page ${page} of ${totalPages}`}
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => exportCsv(leads)}
+                className="text-gray-500 hover:text-gray-300 underline transition"
+              >
+                Export page as CSV
+              </button>
+              {totalPages > 1 && (
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={page === 1}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded border border-gray-700 text-gray-400 hover:bg-gray-800 disabled:opacity-30 transition"
+                  >
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                  </button>
+                  {Array.from({ length: totalPages }, (_, i) => i + 1)
+                    .filter((p) => p === 1 || p === totalPages || Math.abs(p - page) <= 2)
+                    .reduce<(number | '…')[]>((acc, p, i, arr) => {
+                      if (i > 0 && p - (arr[i - 1] as number) > 1) acc.push('…');
+                      acc.push(p);
+                      return acc;
+                    }, [])
+                    .map((p, i) =>
+                      p === '…' ? (
+                        <span key={`ellipsis-${i}`} className="px-1 text-gray-600">…</span>
+                      ) : (
+                        <button
+                          key={p}
+                          onClick={() => setPage(p as number)}
+                          className={`inline-flex h-7 min-w-[28px] items-center justify-center rounded border px-1.5 text-xs transition ${
+                            p === page
+                              ? 'border-brand-500 bg-brand-500/20 text-brand-400'
+                              : 'border-gray-700 text-gray-400 hover:bg-gray-800'
+                          }`}
+                        >
+                          {p}
+                        </button>
+                      ),
+                    )}
+                  <button
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={page === totalPages}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded border border-gray-700 text-gray-400 hover:bg-gray-800 disabled:opacity-30 transition"
+                  >
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

@@ -26,6 +26,11 @@ async function request<T>(
     headers['x-org-id'] = orgId;
   }
 
+  const apiKey = process.env.NEXT_PUBLIC_API_KEY;
+  if (apiKey) {
+    headers['x-api-key'] = apiKey;
+  }
+
   const res = await fetch(`${BASE_URL}${path}`, {
     method,
     headers,
@@ -87,7 +92,10 @@ export function createApiClient(orgId: string | null) {
 
 /** Fetches the default org ID - does not need x-org-id */
 export async function fetchDefaultOrg(): Promise<{ orgId: string }> {
-  const res = await fetch(`${BASE_URL}/org/default`);
+  const apiKey = process.env.NEXT_PUBLIC_API_KEY;
+  const res = await fetch(`${BASE_URL}/org/default`, {
+    headers: apiKey ? { 'x-api-key': apiKey } : {},
+  });
   if (!res.ok) {
     let message = 'Could not load organization. Check API is running and DEFAULT_ORG_ID is set.';
     try {

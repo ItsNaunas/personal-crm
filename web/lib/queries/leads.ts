@@ -30,12 +30,23 @@ export interface LeadFilters {
   q?: string;
   sort?: string;
   order?: 'asc' | 'desc';
+  page?: number;
+  pageSize?: number;
 }
 
-export function useLeads(filters?: LeadFilters) {
-  const { orgId } = useOrg();
-  const api = createApiClient(orgId);
+export interface PaginatedLeads {
+  data: Lead[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
 
+export interface LeadIdsResult {
+  ids: string[];
+  total: number;
+}
+
+function buildLeadListParams(filters?: LeadFilters, includePagination = true): URLSearchParams {
   const params = new URLSearchParams();
   if (filters?.lifecycleStage) params.set('lifecycleStage', filters.lifecycleStage);
   if (filters?.temperature) params.set('temperature', filters.temperature);
@@ -47,13 +58,22 @@ export function useLeads(filters?: LeadFilters) {
   if (filters?.q) params.set('q', filters.q);
   if (filters?.sort) params.set('sort', filters.sort);
   if (filters?.order) params.set('order', filters.order);
-  const qs = params.toString();
+  if (includePagination && filters?.page) params.set('page', String(filters.page));
+  if (includePagination && filters?.pageSize) params.set('pageSize', String(filters.pageSize));
+  return params;
+}
+
+export function useLeads(filters?: LeadFilters) {
+  const { orgId } = useOrg();
+  const api = createApiClient(orgId);
+  const qs = buildLeadListParams(filters, true).toString();
 
   return useQuery({
     queryKey: ['leads', orgId, filters],
-    queryFn: () => api.get<Lead[]>(`/leads${qs ? `?${qs}` : ''}`),
+    queryFn: () => api.get<PaginatedLeads>(`/leads${qs ? `?${qs}` : ''}`),
+    placeholderData: (prev) => prev,
     refetchInterval: () =>
-      typeof document !== 'undefined' && document.visibilityState === 'visible' ? 90_000 : false,
+      typeof document !== 'undefined' && document.visibilityState === 'visible' ? 300_000 : false,
   });
 }
 
@@ -65,7 +85,21 @@ export function useLead(id: string) {
     queryFn: () => api.get<Lead>(`/leads/${id}`),
     enabled: !!id,
     refetchInterval: () =>
-      typeof document !== 'undefined' && document.visibilityState === 'visible' ? 90_000 : false,
+      typeof document !== 'undefined' && document.visibilityState === 'visible' ? 300_000 : false,
+  });
+}
+
+/** Fetches lead IDs matching the given filters (for "select all matching"). Max 2000 IDs. */
+export function useSelectAllMatchingLeads() {
+  const { orgId } = useOrg();
+  const api = createApiClient(orgId);
+  return useMutation({
+    mutationFn: async (filters: LeadFilters) => {
+      const params = buildLeadListParams(filters, false);
+      const result = await api.get<LeadIdsResult>(`/leads/ids${params.toString() ? `?${params.toString()}` : ''}`);
+      return result;
+    },
+    onError: (err: Error) => toast.error(err.message),
   });
 }
 
@@ -106,8 +140,10 @@ function setLeadInListCache(
   qc.setQueriesData(
     { queryKey: ['leads', orgId], exact: false },
     (cached: unknown) => {
-      if (!Array.isArray(cached)) return cached;
-      return cached.map((lead: Lead) => (lead.id === id ? data : lead));
+      if (!cached || typeof cached !== 'object') return cached;
+      const c = cached as PaginatedLeads;
+      if (!Array.isArray(c.data)) return cached;
+      return { ...c, data: c.data.map((lead: Lead) => (lead.id === id ? data : lead)) };
     },
   );
 }
@@ -232,6 +268,54 @@ export function useBulkUpdateLeadTemperature() {
   });
 }
 
+export function useBulkUpdateLeadPlatform() {
+  const { orgId } = useOrg();
+  const api = createApiClient(orgId);
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ leadIds, platform }: { leadIds: string[]; platform: string | null }) =>
+      api.patch<{ updated: number }>('/leads/bulk/platform', { leadIds, platform }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['leads', orgId] });
+      toast.success('Platform updated');
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+}
+
+export function useBulkUpdateLeadPriority() {
+  const { orgId } = useOrg();
+  const api = createApiClient(orgId);
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ leadIds, priority }: { leadIds: string[]; priority: LeadPriority | null }) =>
+      api.patch<{ updated: number }>('/leads/bulk/priority', { leadIds, priority }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['leads', orgId] });
+      toast.success('Priority updated');
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+}
+
+export function useBulkUpdateLeadSource() {
+  const { orgId } = useOrg();
+  const api = createApiClient(orgId);
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ leadIds, leadSource }: { leadIds: string[]; leadSource: string | null }) =>
+      api.patch<{ updated: number }>('/leads/bulk/lead-source', { leadIds, leadSource }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['leads', orgId] });
+      toast.success('Lead source updated');
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+}
+
 export function useQualifyLead() {
   const { orgId } = useOrg();
   const api = createApiClient(orgId);
@@ -331,8 +415,10 @@ export function useMergeLeads() {
         qc.setQueriesData(
           { queryKey: ['leads', orgId], exact: false },
           (cached: unknown) => {
-            if (!Array.isArray(cached)) return cached;
-            return cached.filter((lead: Lead) => lead.id !== duplicateId);
+            if (!cached || typeof cached !== 'object') return cached;
+            const c = cached as PaginatedLeads;
+            if (!Array.isArray(c.data)) return cached;
+            return { ...c, data: c.data.filter((lead: Lead) => lead.id !== duplicateId), total: Math.max(0, c.total - 1) };
           },
         );
       }
