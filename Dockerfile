@@ -20,6 +20,9 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
+# Prisma requires OpenSSL
+RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
+
 # Copy only what's needed to run
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
