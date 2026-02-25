@@ -72,6 +72,22 @@ export class AnalyzeCallHandler implements JobHandler {
       });
     }
 
+    await this.emitter.emit({
+      orgId: job.org_id,
+      eventType: EventType.CALL_ANALYZED,
+      entityType: 'call',
+      entityId: callId,
+      payload: {
+        callId,
+        leadId,
+        summary: analysis.summary,
+        outcome: analysis.outcome,
+        buyingSignalScore: newScore,
+        nextSteps: analysis.nextSteps,
+      },
+      idempotencyKey: `call.analyzed:${callId}`,
+    });
+
     this.logger.log(`Call ${callId} analyzed. Buying signal score: ${newScore}`);
   }
 }

@@ -14,7 +14,6 @@ enum LifecycleStage {
   contacted
   qualified
   proposal
-  negotiation
   won
   lost
 
@@ -37,13 +36,41 @@ enum RecommendedPath {
 }
 
 enum DealStage {
-  discovery
+  diagnostic
   proposal
-  negotiation
   won
   lost
 
   @@map("deal_stage")
+}
+
+enum OfferType {
+  website_install
+  lifecycle_install
+  lead_control
+  sales_optimisation
+  retention
+
+  @@map("offer_type")
+}
+
+enum DeliveryPhase {
+  system_design
+  crm_build
+  automation_build
+  handover
+  live
+  complete
+
+  @@map("delivery_phase")
+}
+
+enum OnboardingStatus {
+  pending
+  in_progress
+  complete
+
+  @@map("onboarding_status")
 }
 
 enum CallStatus {
@@ -151,6 +178,11 @@ model Lead {
 
   @@index([orgId, lifecycleStage])
   @@index([orgId, lastStateChange])
+  @@index([orgId, createdAt])
+  @@index([orgId, priority])
+  @@index([orgId, temperature])
+  @@index([orgId, nextAction])
+  @@index([orgId, recommendedPath])
   @@map("leads")
 }
 
@@ -163,7 +195,8 @@ model Deal {
   leadId String @map("lead_id")
   lead   Lead   @relation(fields: [leadId], references: [id])
 
-  stage              DealStage @default(discovery)
+  stage              DealStage @default(diagnostic)
+  offerType          OfferType? @map("offer_type")
   dealValue          Float     @map("deal_value")
   probability        Float     @default(0)
   lostReason         String?   @map("lost_reason")
@@ -191,6 +224,7 @@ model Call {
 
   transcript            String?
   aiSummary             String? @map("ai_summary")
+  proposalBlueprint     String? @map("proposal_blueprint")
   outcome               String?
   completedAt           DateTime? @map("completed_at")
   meetingUrl            String?   @map("meeting_url")
@@ -212,11 +246,14 @@ model Client {
   dealId String @map("deal_id")
   deal   Deal   @relation(fields: [dealId], references: [id])
 
-  onboardingStatus  String?   @map("onboarding_status")
-  deliveryStatus    String?   @map("delivery_status")
-  renewalDate       DateTime? @map("renewal_date")
-  churnRiskScore    Float     @default(0) @map("churn_risk_score")
-  satisfactionScore Float?    @map("satisfaction_score")
+  onboardingStatus     OnboardingStatus  @default(pending) @map("onboarding_status")
+  deliveryPhase        DeliveryPhase?    @map("delivery_phase")
+  renewalDate          DateTime?         @map("renewal_date")
+  churnRiskScore       Float             @default(0) @map("churn_risk_score")
+  satisfactionScore    Float?            @map("satisfaction_score")
+  testimonialSentAt    DateTime?         @map("testimonial_sent_at")
+  referralPromptSentAt DateTime?         @map("referral_prompt_sent_at")
+  upsellFlaggedAt      DateTime?         @map("upsell_flagged_at")
 
   @@index([orgId])
   @@map("clients")

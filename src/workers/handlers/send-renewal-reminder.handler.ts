@@ -3,7 +3,7 @@ import { JobHandler } from '../interfaces/job-handler.interface';
 import { RawJob } from '../../core/jobs/raw-job.type';
 import { JobType } from '../../core/jobs/job-types.enum';
 import { PrismaService } from '../../core/database/prisma.service';
-import { SystemLogService } from '../../system-log/system-log.service';
+import { WebhookService } from '../../webhook/webhook.service';
 
 @Injectable()
 export class SendRenewalReminderHandler implements JobHandler {
@@ -12,7 +12,7 @@ export class SendRenewalReminderHandler implements JobHandler {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly systemLog: SystemLogService,
+    private readonly webhook: WebhookService,
   ) {}
 
   async handle(job: RawJob): Promise<void> {
@@ -24,17 +24,29 @@ export class SendRenewalReminderHandler implements JobHandler {
         orgId: job.org_id,
         renewalDate: { lte: thirtyDaysOut, gte: new Date() },
       },
-      include: { lead: true },
+      include: {
+        lead: { select: { name: true, email: true, companyName: true } },
+        deal: { select: { dealValue: true } },
+      },
     });
 
     for (const client of upcomingRenewals) {
-      await this.systemLog.info('SendRenewalReminderHandler', `Renewal reminder: ${client.id}`, {
-        clientId: client.id,
-        renewalDate: client.renewalDate,
-        leadName: client.lead.name,
-      });
+      await this.webhook.trigger(
+        this.webhook.getWebhookUrl('renewalReminder' as never),
+        {
+          clientId: client.id,
+          leadName: client.lead.name,
+          email: client.lead.email,
+          companyName: client.lead.companyName,
+          renewalDate: client.renewalDate,
+          dealValue: client.deal.dealValue,
+          daysUntilRenewal: Math.ceil(
+            ((client.renewalDate?.getTime() ?? 0) - Date.now()) / (1000 * 60 * 60 * 24),
+          ),
+        },
+      );
     }
 
-    this.logger.log(`Sent ${upcomingRenewals.length} renewal reminders`);
+    this.logger.log(`Triggered ${upcomingRenewals.length} renewal reminders`);
   }
 }

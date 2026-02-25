@@ -78,15 +78,15 @@ export class WatchdogService {
   private async checkClientsWithoutOnboarding(orgId: string): Promise<IntegrityViolation[]> {
     const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000);
     const clients = await this.prisma.client.findMany({
-      where: { orgId, onboardingStatus: null, createdAt: { lt: cutoff } },
+      where: { orgId, onboardingStatus: 'pending', createdAt: { lt: cutoff } },
       select: { id: true },
     });
 
     return clients.map((c) => ({
-      rule: 'client_no_onboarding',
+      rule: 'client_stuck_pending',
       entityType: 'client',
       entityId: c.id,
-      detail: `Client ${c.id} has no onboarding status 48h after creation`,
+      detail: `Client ${c.id} still pending onboarding 48h after creation`,
       severity: 'warn' as const,
     }));
   }

@@ -27,3 +27,8 @@ prisma/migrations/**/migration_lock.toml
 
 # Optional
 *.tsbuildinfo
+
+# Sensitive scripts / session files
+instagram-session.json
+instagram-login.js
+enrich-leads.js

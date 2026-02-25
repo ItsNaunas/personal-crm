@@ -3,7 +3,7 @@ import { JobHandler } from '../interfaces/job-handler.interface';
 import { RawJob } from '../../core/jobs/raw-job.type';
 import { JobType } from '../../core/jobs/job-types.enum';
 import { PrismaService } from '../../core/database/prisma.service';
-import { SystemLogService } from '../../system-log/system-log.service';
+import { WebhookService } from '../../webhook/webhook.service';
 
 interface NudgeDealPayload {
   dealId: string;
@@ -16,7 +16,7 @@ export class NudgeDealHandler implements JobHandler {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly systemLog: SystemLogService,
+    private readonly webhook: WebhookService,
   ) {}
 
   async handle(job: RawJob): Promise<void> {
@@ -24,17 +24,31 @@ export class NudgeDealHandler implements JobHandler {
 
     const deal = await this.prisma.deal.findUniqueOrThrow({
       where: { id: dealId },
-      include: { lead: true },
+      include: {
+        lead: { select: { id: true, name: true, email: true, companyName: true } },
+      },
     });
 
-    // In production: trigger email/Slack notification to assigned rep.
-    await this.systemLog.warn('NudgeDealHandler', `Stalled deal nudge: ${dealId}`, {
-      dealId,
-      stage: deal.stage,
-      leadName: deal.lead.name,
-      stageLastChanged: deal.stageLastChangedAt,
-    });
+    const daysSinceLastChange = deal.stageLastChangedAt
+      ? Math.floor((Date.now() - deal.stageLastChangedAt.getTime()) / 86_400_000)
+      : null;
 
-    this.logger.log(`Nudge triggered for stalled deal ${dealId}`);
+    await this.webhook.trigger(
+      this.webhook.getWebhookUrl('deals' as never),
+      {
+        action: 'deal_stalled',
+        dealId,
+        leadId: deal.leadId,
+        leadName: deal.lead.name,
+        email: deal.lead.email,
+        companyName: deal.lead.companyName,
+        stage: deal.stage,
+        offerType: deal.offerType,
+        dealValue: deal.dealValue,
+        daysSinceLastChange,
+      },
+    );
+
+    this.logger.log(`Stalled deal nudge sent for ${dealId} (${deal.lead.name}) — ${daysSinceLastChange ?? '?'} days in ${deal.stage}`);
   }
 }

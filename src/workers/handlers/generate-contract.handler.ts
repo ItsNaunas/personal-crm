@@ -3,12 +3,14 @@ import { JobHandler } from '../interfaces/job-handler.interface';
 import { RawJob } from '../../core/jobs/raw-job.type';
 import { JobType } from '../../core/jobs/job-types.enum';
 import { PrismaService } from '../../core/database/prisma.service';
-import { SystemLogService } from '../../system-log/system-log.service';
+import { WebhookService } from '../../webhook/webhook.service';
 
 interface GenerateContractPayload {
   dealId: string;
 }
 
+// Contracts are NOT auto-generated. Founder sends contracts manually.
+// This handler notifies the founder that a deal is won and a contract needs to be sent.
 @Injectable()
 export class GenerateContractHandler implements JobHandler {
   readonly jobType = JobType.GENERATE_CONTRACT;
@@ -16,7 +18,7 @@ export class GenerateContractHandler implements JobHandler {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly systemLog: SystemLogService,
+    private readonly webhook: WebhookService,
   ) {}
 
   async handle(job: RawJob): Promise<void> {
@@ -24,31 +26,30 @@ export class GenerateContractHandler implements JobHandler {
 
     const deal = await this.prisma.deal.findUniqueOrThrow({
       where: { id: dealId },
-      include: { lead: true },
+      include: {
+        lead: { select: { name: true, email: true, companyName: true } },
+        invoices: { select: { id: true, amount: true } },
+      },
     });
 
-    // In production: integrate with DocuSign, PandaDoc, or similar.
-    // For now, record the contract URL stub and mark as ready to send.
-    const contractUrl = `https://contracts.internal/deal/${dealId}`;
+    const invoice = deal.invoices[0];
 
-    const invoice = await this.prisma.invoice.findFirst({
-      where: { dealId, orgId: job.org_id },
-      select: { id: true },
-    });
+    // Notify founder to manually create and send the contract
+    await this.webhook.trigger(
+      this.webhook.getWebhookUrl('onboarding' as never),
+      {
+        action: 'contract_required',
+        dealId,
+        leadName: deal.lead.name,
+        email: deal.lead.email,
+        companyName: deal.lead.companyName,
+        dealValue: deal.dealValue,
+        offerType: deal.offerType,
+        invoiceId: invoice?.id,
+        invoiceAmount: invoice?.amount,
+      },
+    );
 
-    if (invoice) {
-      await this.prisma.invoice.update({
-        where: { id: invoice.id },
-        data: { contractUrl },
-      });
-    }
-
-    await this.systemLog.info('GenerateContractHandler', `Contract generated for deal ${dealId}`, {
-      dealId,
-      contractUrl,
-      leadId: deal.leadId,
-    });
-
-    this.logger.log(`Contract generated for deal ${dealId}`);
+    this.logger.log(`Contract notification sent for deal ${dealId} — ${deal.lead.name} (${deal.lead.companyName})`);
   }
 }

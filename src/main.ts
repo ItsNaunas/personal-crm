@@ -16,6 +16,11 @@ function validateEnv(): void {
       'OPENAI_API_KEY is not set. AI-backed jobs (qualify_lead, analyze_call, weekly report) will fail until it is set.',
     );
   }
+  if (!process.env.API_SECRET_KEY?.trim()) {
+    logger.warn(
+      'API_SECRET_KEY is not set. All endpoints are unauthenticated. Set this before deploying to production.',
+    );
+  }
 }
 
 async function bootstrap() {
@@ -34,22 +39,40 @@ async function bootstrap() {
     }),
   );
 
-  app.enableCors();
+  // CORS — restrict to explicit allow-list in production
+  const isProd = process.env.NODE_ENV === 'production';
+  const rawOrigins = (process.env.ALLOWED_ORIGINS ?? '').split(',').map((o) => o.trim()).filter(Boolean);
 
-  const config = new DocumentBuilder()
-    .setTitle('Personal CRM API')
-    .setDescription('Production-grade state-driven CRM with internal workflow engine')
-    .setVersion('1.0')
-    .addApiKey({ type: 'apiKey', in: 'header', name: 'x-org-id' }, 'org-id')
-    .build();
+  if (isProd && rawOrigins.length > 0) {
+    app.enableCors({ origin: rawOrigins, methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'] });
+  } else if (!isProd) {
+    app.enableCors();
+  }
+  // In production with no ALLOWED_ORIGINS set: CORS disabled (API only, no browser access)
 
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document);
+  // Swagger — dev only
+  if (!isProd) {
+    const config = new DocumentBuilder()
+      .setTitle('Personal CRM API')
+      .setDescription('Production-grade state-driven CRM with internal workflow engine')
+      .setVersion('1.0')
+      .addApiKey({ type: 'apiKey', in: 'header', name: 'x-org-id' }, 'org-id')
+      .addApiKey({ type: 'apiKey', in: 'header', name: 'x-api-key' }, 'api-key')
+      .build();
+
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup('api/docs', app, document);
+    logger.log(`Swagger docs at http://localhost:${process.env.PORT ?? 3000}/api/docs`);
+  }
+
+  // Health check — always public, used by Railway/Docker
+  app.getHttpAdapter().get('/health', (_req: unknown, res: { json: (v: unknown) => void }) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  });
 
   const port = process.env.PORT ?? 3000;
   await app.listen(port);
-  logger.log(`Application running on http://localhost:${port}`);
-  logger.log(`Swagger docs at http://localhost:${port}/api/docs`);
+  logger.log(`Application running on port ${port}`);
 }
 
 bootstrap().catch((err) => {

@@ -10,9 +10,8 @@ export interface PipelineSummary {
 
 export interface RevenueVelocity {
   avgDaysToClose: number | null;
-  avgDaysInDiscovery: number | null;
+  avgDaysInDiagnostic: number | null;
   avgDaysInProposal: number | null;
-  avgDaysInNegotiation: number | null;
   conversionRatePercent: number;
   wonDeals: number;
   totalDeals: number;
@@ -68,7 +67,7 @@ export class AnalyticsService {
       this.prisma.deal.count({ where: { orgId } }),
     ]);
 
-    const [avgClose, avgDiscovery, avgProposal, avgNegotiation] = await Promise.all([
+    const [avgClose, avgDiagnostic, avgProposal] = await Promise.all([
       this.prisma.$queryRaw<{ avg_days: number | null }[]>(
         Prisma.sql`
           SELECT AVG(EXTRACT(EPOCH FROM (d.updated_at - l.created_at)) / 86400) AS avg_days
@@ -78,24 +77,17 @@ export class AnalyticsService {
             AND d.stage = 'won'
         `,
       ),
+      // Average time spent in diagnostic (initial) stage before moving on
       this.prisma.$queryRaw<{ avg_days: number | null }[]>(
         Prisma.sql`
           SELECT AVG(EXTRACT(EPOCH FROM (COALESCE(d.stage_last_changed_at, d.updated_at) - d.created_at)) / 86400) AS avg_days
           FROM deals d
           WHERE d.org_id = ${orgId}
-            AND d.stage != 'discovery'
+            AND d.stage != 'diagnostic'
             AND d.stage_last_changed_at IS NOT NULL
         `,
       ),
-      this.prisma.$queryRaw<{ avg_days: number | null }[]>(
-        Prisma.sql`
-          SELECT AVG(EXTRACT(EPOCH FROM (COALESCE(d.stage_last_changed_at, d.updated_at) - d.created_at)) / 86400) AS avg_days
-          FROM deals d
-          WHERE d.org_id = ${orgId}
-            AND d.stage IN ('negotiation', 'won', 'lost')
-            AND d.stage_last_changed_at IS NOT NULL
-        `,
-      ),
+      // Average time spent in proposal stage before a decision
       this.prisma.$queryRaw<{ avg_days: number | null }[]>(
         Prisma.sql`
           SELECT AVG(EXTRACT(EPOCH FROM (COALESCE(d.stage_last_changed_at, d.updated_at) - d.created_at)) / 86400) AS avg_days
@@ -109,9 +101,8 @@ export class AnalyticsService {
 
     return {
       avgDaysToClose: avgClose[0]?.avg_days ? Number(Number(avgClose[0].avg_days).toFixed(1)) : null,
-      avgDaysInDiscovery: avgDiscovery[0]?.avg_days ? Number(Number(avgDiscovery[0].avg_days).toFixed(1)) : null,
+      avgDaysInDiagnostic: avgDiagnostic[0]?.avg_days ? Number(Number(avgDiagnostic[0].avg_days).toFixed(1)) : null,
       avgDaysInProposal: avgProposal[0]?.avg_days ? Number(Number(avgProposal[0].avg_days).toFixed(1)) : null,
-      avgDaysInNegotiation: avgNegotiation[0]?.avg_days ? Number(Number(avgNegotiation[0].avg_days).toFixed(1)) : null,
       conversionRatePercent: total > 0 ? Math.round((won / total) * 100) : 0,
       wonDeals: won,
       totalDeals: total,
@@ -119,7 +110,7 @@ export class AnalyticsService {
   }
 
   async getLeadFunnel(orgId: string) {
-    const stages = ['new_lead', 'contacted', 'qualified', 'proposal', 'negotiation', 'won', 'lost'] as const;
+    const stages = ['new_lead', 'contacted', 'qualified', 'proposal', 'won', 'lost'] as const;
     const counts = await Promise.all(
       stages.map((stage) =>
         this.prisma.lead.count({ where: { orgId, lifecycleStage: stage } }).then((count) => ({ stage, count })),

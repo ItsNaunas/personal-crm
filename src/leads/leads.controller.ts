@@ -17,8 +17,49 @@ export class LeadsController {
     return this.leadsService.create(orgId, dto);
   }
 
+  @Get('ids')
+  @ApiOperation({ summary: 'Get lead IDs matching filters (for bulk select all matching)' })
+  @ApiQuery({ name: 'lifecycleStage', required: false, enum: LifecycleStage })
+  @ApiQuery({ name: 'temperature', required: false, enum: ['cold', 'warm', 'hot'] })
+  @ApiQuery({ name: 'priority', required: false, enum: LeadPriority })
+  @ApiQuery({ name: 'nextAction', required: false, enum: NextAction })
+  @ApiQuery({ name: 'recommendedPath', required: false, enum: RecommendedPath })
+  @ApiQuery({ name: 'platform', required: false })
+  @ApiQuery({ name: 'leadSource', required: false })
+  @ApiQuery({ name: 'q', required: false })
+  @ApiQuery({ name: 'sort', required: false })
+  @ApiQuery({ name: 'order', required: false, enum: ['asc', 'desc'] })
+  @ApiQuery({ name: 'limit', required: false, description: 'Max IDs to return (default 2000)' })
+  findIds(
+    @OrgId() orgId: string,
+    @Query('lifecycleStage') lifecycleStage?: LifecycleStage,
+    @Query('temperature') temperature?: string,
+    @Query('priority') priority?: LeadPriority,
+    @Query('nextAction') nextAction?: NextAction,
+    @Query('recommendedPath') recommendedPath?: RecommendedPath,
+    @Query('platform') platform?: string,
+    @Query('leadSource') leadSource?: string,
+    @Query('q') q?: string,
+    @Query('sort') sort?: string,
+    @Query('order') order?: 'asc' | 'desc',
+    @Query('limit') limit?: string,
+  ) {
+    return this.leadsService.findIds(orgId, {
+      lifecycleStage,
+      temperature,
+      priority,
+      nextAction,
+      recommendedPath,
+      platform,
+      leadSource,
+      q,
+      sort,
+      order,
+    }, limit ? parseInt(limit, 10) : undefined);
+  }
+
   @Get()
-  @ApiOperation({ summary: 'List leads with optional filters, search, and sort' })
+  @ApiOperation({ summary: 'List leads with optional filters, search, sort, and pagination' })
   @ApiQuery({ name: 'lifecycleStage', required: false, enum: LifecycleStage })
   @ApiQuery({ name: 'temperature', required: false, enum: ['cold', 'warm', 'hot'] })
   @ApiQuery({ name: 'priority', required: false, enum: LeadPriority })
@@ -27,8 +68,10 @@ export class LeadsController {
   @ApiQuery({ name: 'platform', required: false, description: 'Filter by platform (e.g. linkedin, cold_email)' })
   @ApiQuery({ name: 'leadSource', required: false, description: 'Filter by lead source' })
   @ApiQuery({ name: 'q', required: false, description: 'Search by name, email, company, domain' })
-  @ApiQuery({ name: 'sort', required: false, description: 'Sort field: createdAt|updatedAt|lastStateChange|lifecycleStage|name' })
+  @ApiQuery({ name: 'sort', required: false, description: 'Sort field: createdAt|updatedAt|lastStateChange|lifecycleStage|name|priority|temperature|nextAction|recommendedPath' })
   @ApiQuery({ name: 'order', required: false, enum: ['asc', 'desc'] })
+  @ApiQuery({ name: 'page', required: false, description: 'Page number (1-based, default 1)' })
+  @ApiQuery({ name: 'pageSize', required: false, description: 'Items per page (default 50, max 200)' })
   findAll(
     @OrgId() orgId: string,
     @Query('lifecycleStage') lifecycleStage?: LifecycleStage,
@@ -41,6 +84,8 @@ export class LeadsController {
     @Query('q') q?: string,
     @Query('sort') sort?: string,
     @Query('order') order?: 'asc' | 'desc',
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
   ) {
     return this.leadsService.findAll(orgId, {
       lifecycleStage,
@@ -53,6 +98,8 @@ export class LeadsController {
       q,
       sort,
       order,
+      page: page ? parseInt(page, 10) : undefined,
+      pageSize: pageSize ? parseInt(pageSize, 10) : undefined,
     });
   }
 
@@ -109,6 +156,33 @@ export class LeadsController {
     @Body() body: { leadIds: string[]; temperature: Temperature | null },
   ) {
     return this.leadsService.bulkUpdateTemperature(body.leadIds, orgId, body.temperature);
+  }
+
+  @Patch('bulk/platform')
+  @ApiOperation({ summary: 'Bulk update platform for multiple leads' })
+  bulkUpdatePlatform(
+    @OrgId() orgId: string,
+    @Body() body: { leadIds: string[]; platform: string | null },
+  ) {
+    return this.leadsService.bulkUpdatePlatform(body.leadIds, orgId, body.platform);
+  }
+
+  @Patch('bulk/priority')
+  @ApiOperation({ summary: 'Bulk update priority for multiple leads' })
+  bulkUpdatePriority(
+    @OrgId() orgId: string,
+    @Body() body: { leadIds: string[]; priority: LeadPriority | null },
+  ) {
+    return this.leadsService.bulkUpdatePriority(body.leadIds, orgId, body.priority);
+  }
+
+  @Patch('bulk/lead-source')
+  @ApiOperation({ summary: 'Bulk update lead source for multiple leads' })
+  bulkUpdateLeadSource(
+    @OrgId() orgId: string,
+    @Body() body: { leadIds: string[]; leadSource: string | null },
+  ) {
+    return this.leadsService.bulkUpdateLeadSource(body.leadIds, orgId, body.leadSource);
   }
 
   @Patch(':id')

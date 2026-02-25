@@ -12,6 +12,7 @@ export enum EventType {
   // Call lifecycle
   CALL_BOOKED = 'call.booked',
   CALL_COMPLETED = 'call.completed',
+  CALL_ANALYZED = 'call.analyzed',
   CALL_NO_SHOW = 'call.no_show',
 
   // Deal lifecycle
@@ -31,6 +32,9 @@ export enum EventType {
   CLIENT_CREATED = 'client.created',
   CLIENT_ONBOARDING_COMPLETE = 'client.onboarding_complete',
   RENEWAL_UPCOMING = 'renewal.upcoming',
+  TESTIMONIAL_DUE = 'client.testimonial_due',
+  REFERRAL_DUE = 'client.referral_due',
+  UPSELL_DUE = 'client.upsell_due',
 
   // Scheduler synthetic events
   SCHEDULER_DEAL_DECAY_CHECK = 'scheduler.deal_decay_check',

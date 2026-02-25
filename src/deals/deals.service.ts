@@ -6,9 +6,8 @@ import { DealStage } from '@prisma/client';
 import { CreateDealDto, UpdateDealStageDto, UpdateDealDto } from './dto/create-deal.dto';
 
 const VALID_TRANSITIONS: Partial<Record<DealStage, DealStage[]>> = {
-  discovery: ['proposal', 'lost'],
-  proposal: ['negotiation', 'lost'],
-  negotiation: ['won', 'lost'],
+  diagnostic: ['proposal', 'lost'],
+  proposal: ['won', 'lost'],
 };
 
 @Injectable()
@@ -29,7 +28,7 @@ export class DealsService {
         leadId: dto.leadId,
         dealValue: dto.dealValue,
         probability: dto.probability ?? 0.1,
-        stage: 'discovery',
+        stage: 'diagnostic',
         stageLastChangedAt: new Date(),
       },
     });

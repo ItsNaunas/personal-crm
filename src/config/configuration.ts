@@ -39,4 +39,20 @@ export default () => ({
     ghostRiskSilenceDays: parseInt(process.env.GHOST_RISK_SILENCE_DAYS ?? '7', 10),
     dealDecayThresholdDays: parseInt(process.env.DEAL_DECAY_THRESHOLD_DAYS ?? '14', 10),
   },
+
+  n8n: {
+    webhooks: {
+      outreachDirectCall: process.env.N8N_WEBHOOK_OUTREACH_DIRECT ?? '',
+      outreachCold: process.env.N8N_WEBHOOK_OUTREACH_COLD ?? '',
+      nurture: process.env.N8N_WEBHOOK_NURTURE ?? '',
+      onboarding: process.env.N8N_WEBHOOK_ONBOARDING ?? '',
+      renewalReminder: process.env.N8N_WEBHOOK_RENEWAL_REMINDER ?? '',
+      proposalBlueprint: process.env.N8N_WEBHOOK_PROPOSAL_BLUEPRINT ?? '',
+      testimonial: process.env.N8N_WEBHOOK_TESTIMONIAL ?? '',
+      referral: process.env.N8N_WEBHOOK_REFERRAL ?? '',
+      upsell: process.env.N8N_WEBHOOK_UPSELL ?? '',
+      leads: process.env.N8N_WEBHOOK_LEADS ?? '',
+      deals: process.env.N8N_WEBHOOK_DEALS ?? '',
+    },
+  },
 });

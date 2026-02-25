@@ -23,6 +23,8 @@ export interface LeadFilters {
   q?: string;
   sort?: string;
   order?: 'asc' | 'desc';
+  page?: number;
+  pageSize?: number;
 }
 
 const SORTABLE_FIELDS: Record<string, string> = {
@@ -31,7 +33,14 @@ const SORTABLE_FIELDS: Record<string, string> = {
   lastStateChange: 'lastStateChange',
   lifecycleStage: 'lifecycleStage',
   name: 'name',
+  priority: 'priority',
+  temperature: 'temperature',
+  nextAction: 'nextAction',
+  recommendedPath: 'recommendedPath',
 };
+
+const PAGE_SIZE_MAX = 200;
+const SELECT_ALL_IDS_LIMIT = 2000;
 
 @Injectable()
 export class LeadsService {
@@ -43,6 +52,30 @@ export class LeadsService {
     private readonly qualificationService: QualificationService,
     private readonly enrichmentService: EnrichmentService,
   ) {}
+
+  private buildWhere(orgId: string, filters?: LeadFilters): Prisma.LeadWhereInput {
+    const searchWhere: Prisma.LeadWhereInput = filters?.q
+      ? {
+          OR: [
+            { name: { contains: filters.q, mode: 'insensitive' } },
+            { email: { contains: filters.q, mode: 'insensitive' } },
+            { companyName: { contains: filters.q, mode: 'insensitive' } },
+            { domain: { contains: filters.q, mode: 'insensitive' } },
+          ],
+        }
+      : {};
+    return {
+      orgId,
+      ...(filters?.lifecycleStage ? { lifecycleStage: filters.lifecycleStage } : {}),
+      ...(filters?.temperature ? { temperature: filters.temperature as 'cold' | 'warm' | 'hot' } : {}),
+      ...(filters?.priority ? { priority: filters.priority } : {}),
+      ...(filters?.nextAction ? { nextAction: filters.nextAction } : {}),
+      ...(filters?.recommendedPath ? { recommendedPath: filters.recommendedPath } : {}),
+      ...(filters?.platform?.trim() ? { platform: { contains: filters.platform.trim(), mode: 'insensitive' } } : {}),
+      ...(filters?.leadSource?.trim() ? { leadSource: { contains: filters.leadSource.trim(), mode: 'insensitive' } } : {}),
+      ...searchWhere,
+    };
+  }
 
   async create(orgId: string, dto: CreateLeadDto) {
     const now = new Date();
@@ -85,35 +118,43 @@ export class LeadsService {
   async findAll(orgId: string, filters?: LeadFilters) {
     const sortField = (filters?.sort && SORTABLE_FIELDS[filters.sort]) ?? 'createdAt';
     const sortOrder = filters?.order === 'asc' ? 'asc' : 'desc';
+    const page = Math.max(1, filters?.page ?? 1);
+    const pageSize = Math.min(PAGE_SIZE_MAX, Math.max(1, filters?.pageSize ?? 50));
+    const skip = (page - 1) * pageSize;
+    const where = this.buildWhere(orgId, filters);
 
-    const searchWhere: Prisma.LeadWhereInput = filters?.q
-      ? {
-          OR: [
-            { name: { contains: filters.q, mode: 'insensitive' } },
-            { email: { contains: filters.q, mode: 'insensitive' } },
-            { companyName: { contains: filters.q, mode: 'insensitive' } },
-            { domain: { contains: filters.q, mode: 'insensitive' } },
-          ],
-        }
-      : {};
+    const [data, total] = await Promise.all([
+      this.prisma.lead.findMany({
+        where,
+        include: { _count: { select: { deals: true, calls: true } } },
+        orderBy: { [sortField]: sortOrder },
+        skip,
+        take: pageSize,
+      }),
+      this.prisma.lead.count({ where }),
+    ]);
 
-    return this.prisma.lead.findMany({
-      where: {
-        orgId,
-        ...(filters?.lifecycleStage ? { lifecycleStage: filters.lifecycleStage } : {}),
-        ...(filters?.temperature ? { temperature: filters.temperature as 'cold' | 'warm' | 'hot' } : {}),
-        ...(filters?.priority ? { priority: filters.priority } : {}),
-        ...(filters?.nextAction ? { nextAction: filters.nextAction } : {}),
-        ...(filters?.recommendedPath ? { recommendedPath: filters.recommendedPath } : {}),
-        ...(filters?.platform?.trim() ? { platform: { contains: filters.platform.trim(), mode: 'insensitive' } } : {}),
-        ...(filters?.leadSource?.trim() ? { leadSource: { contains: filters.leadSource.trim(), mode: 'insensitive' } } : {}),
-        ...searchWhere,
-      },
-      include: {
-        _count: { select: { deals: true, calls: true } },
-      },
-      orderBy: { [sortField]: sortOrder },
-    });
+    return { data, total, page, pageSize };
+  }
+
+  /** Returns lead IDs matching the same filters as findAll, up to limit (for "select all matching"). */
+  async findIds(orgId: string, filters?: LeadFilters, limit = SELECT_ALL_IDS_LIMIT): Promise<{ ids: string[]; total: number }> {
+    const where = this.buildWhere(orgId, filters);
+    const sortField = (filters?.sort && SORTABLE_FIELDS[filters.sort]) ?? 'createdAt';
+    const sortOrder = filters?.order === 'asc' ? 'asc' : 'desc';
+    const take = Math.min(SELECT_ALL_IDS_LIMIT, Math.max(1, limit));
+
+    const [rows, total] = await Promise.all([
+      this.prisma.lead.findMany({
+        where,
+        select: { id: true },
+        orderBy: { [sortField]: sortOrder },
+        take,
+      }),
+      this.prisma.lead.count({ where }),
+    ]);
+
+    return { ids: rows.map((r) => r.id), total };
   }
 
   async findOne(id: string, orgId: string) {
@@ -221,7 +262,7 @@ export class LeadsService {
     };
 
     // Set lastContactedAt when moving to a stage that implies we contacted them
-    if (['contacted', 'qualified', 'proposal', 'negotiation'].includes(stage)) {
+    if (['contacted', 'qualified', 'proposal'].includes(stage)) {
       data.lastContactedAt = now;
     }
 
@@ -283,7 +324,7 @@ export class LeadsService {
         lastStateChange: now,
         priority: 'normal',
       };
-      if (['contacted', 'qualified', 'proposal', 'negotiation'].includes(stage)) {
+      if (['contacted', 'qualified', 'proposal'].includes(stage)) {
         data.lastContactedAt = now;
       }
       if (stage === 'won' || stage === 'lost') {
@@ -322,6 +363,30 @@ export class LeadsService {
     await this.prisma.lead.updateMany({
       where: { id: { in: leadIds }, orgId },
       data: { temperature: temperature ?? undefined },
+    });
+    return { updated: leadIds.length };
+  }
+
+  async bulkUpdatePlatform(leadIds: string[], orgId: string, platform: string | null) {
+    await this.prisma.lead.updateMany({
+      where: { id: { in: leadIds }, orgId },
+      data: { platform: platform ?? undefined },
+    });
+    return { updated: leadIds.length };
+  }
+
+  async bulkUpdatePriority(leadIds: string[], orgId: string, priority: LeadPriority | null) {
+    await this.prisma.lead.updateMany({
+      where: { id: { in: leadIds }, orgId },
+      data: { priority: priority ?? undefined },
+    });
+    return { updated: leadIds.length };
+  }
+
+  async bulkUpdateLeadSource(leadIds: string[], orgId: string, leadSource: string | null) {
+    await this.prisma.lead.updateMany({
+      where: { id: { in: leadIds }, orgId },
+      data: { leadSource: leadSource ?? undefined },
     });
     return { updated: leadIds.length };
   }

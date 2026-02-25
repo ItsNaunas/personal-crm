@@ -8,7 +8,6 @@ export const STAGE_NEXT_ACTION: Record<
   new_lead: { nextAction: 'contact', dueDays: 1 },
   qualified: { nextAction: 'schedule_call', dueDays: 2 },
   proposal: { nextAction: 'send_proposal', dueDays: 3 },
-  negotiation: { nextAction: 'follow_up', dueDays: 1 },
 };
 
 /** For "contacted" stage: days until follow-up is due, by platform. */

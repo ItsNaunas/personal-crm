@@ -7,6 +7,7 @@ export enum JobType {
   ESCALATE_LEAD = 'escalate_lead',
 
   ANALYZE_CALL = 'analyze_call',
+  GENERATE_PROPOSAL_BLUEPRINT = 'generate_proposal_blueprint',
 
   CREATE_INVOICE = 'create_invoice',
   GENERATE_CONTRACT = 'generate_contract',
@@ -15,8 +16,13 @@ export enum JobType {
   CREATE_CLIENT = 'create_client',
   START_ONBOARDING = 'start_onboarding',
 
+  HANDLE_STALE_LEAD = 'handle_stale_lead',
+  HANDLE_DEAL_LOST = 'handle_deal_lost',
   NUDGE_DEAL = 'nudge_deal',
   SEND_RENEWAL_REMINDER = 'send_renewal_reminder',
+  TRIGGER_TESTIMONIAL = 'trigger_testimonial',
+  TRIGGER_REFERRAL = 'trigger_referral',
+  TRIGGER_UPSELL = 'trigger_upsell',
 
   CHECK_DEAL_DECAY = 'check_deal_decay',
   CHECK_LEAD_STALE = 'check_lead_stale',

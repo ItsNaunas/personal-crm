@@ -24,7 +24,7 @@ export class RecalcGhostRiskHandler implements JobHandler {
     const silenceThreshold = new Date();
     silenceThreshold.setDate(silenceThreshold.getDate() - this.silenceDays);
 
-    // Leads with high buying signal but sudden silence
+    // Pass 1: Leads with high buying signal that have gone silent — increment risk
     const atRiskLeads = await this.prisma.lead.findMany({
       where: {
         orgId: job.org_id,
@@ -51,6 +51,27 @@ export class RecalcGhostRiskHandler implements JobHandler {
       }
     }
 
-    this.logger.log(`Ghost risk recalculated for ${atRiskLeads.length} lead(s)`);
+    // Pass 2: Leads that re-engaged (recent state change) but still carry a ghost risk score — decay it
+    const reengagedLeads = await this.prisma.lead.findMany({
+      where: {
+        orgId: job.org_id,
+        ghostRiskScore: { gt: 0 },
+        lifecycleStage: { notIn: ['won', 'lost'] },
+        lastStateChange: { gte: silenceThreshold },
+      },
+      select: { id: true, ghostRiskScore: true },
+    });
+
+    for (const lead of reengagedLeads) {
+      const decayedScore = Math.max(0, lead.ghostRiskScore - 15);
+      await this.prisma.lead.update({
+        where: { id: lead.id },
+        data: { ghostRiskScore: decayedScore },
+      });
+    }
+
+    this.logger.log(
+      `Ghost risk: ${atRiskLeads.length} lead(s) incremented, ${reengagedLeads.length} lead(s) decayed`,
+    );
   }
 }

@@ -9,8 +9,12 @@ export const EVENT_JOB_MAP: Partial<Record<EventType, JobType[]>> = {
   [EventType.BUYING_SIGNAL_HIGH]: [JobType.ESCALATE_LEAD],
 
   [EventType.CALL_COMPLETED]: [JobType.ANALYZE_CALL],
+  [EventType.CALL_ANALYZED]: [JobType.GENERATE_PROPOSAL_BLUEPRINT],
+
+  [EventType.LEAD_STALE]: [JobType.HANDLE_STALE_LEAD],
 
   [EventType.DEAL_WON]: [JobType.CREATE_INVOICE, JobType.GENERATE_CONTRACT],
+  [EventType.DEAL_LOST]: [JobType.HANDLE_DEAL_LOST],
   [EventType.DEAL_STALLED]: [JobType.NUDGE_DEAL],
 
   [EventType.INVOICE_PAID]: [JobType.CREATE_CLIENT],
@@ -23,6 +27,10 @@ export const EVENT_JOB_MAP: Partial<Record<EventType, JobType[]>> = {
   [EventType.SCHEDULER_RENEWAL_REMINDER]: [JobType.SEND_RENEWAL_REMINDER],
   [EventType.SCHEDULER_WEEKLY_AI_REPORT]: [JobType.GENERATE_WEEKLY_REPORT],
   [EventType.SCHEDULER_INTEGRITY_WATCHDOG]: [JobType.CHECK_INTEGRITY],
+
+  [EventType.TESTIMONIAL_DUE]: [JobType.TRIGGER_TESTIMONIAL],
+  [EventType.REFERRAL_DUE]: [JobType.TRIGGER_REFERRAL],
+  [EventType.UPSELL_DUE]: [JobType.TRIGGER_UPSELL],
 
   [EventType.SYSTEM_JOB_DEAD_LETTERED]: [],
   [EventType.SYSTEM_INTEGRITY_ALERT]: [],

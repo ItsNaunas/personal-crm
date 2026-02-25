@@ -2,6 +2,7 @@ import { Controller, Get, Param, Patch, Body } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { ClientsService } from './clients.service';
 import { OrgId } from '../common/decorators/org-id.decorator';
+import { DeliveryPhase, OnboardingStatus } from '@prisma/client';
 
 @ApiTags('clients')
 @Controller('clients')
@@ -25,7 +26,7 @@ export class ClientsController {
   updateStatus(
     @Param('id') id: string,
     @OrgId() orgId: string,
-    @Body() body: { onboardingStatus?: string; deliveryStatus?: string },
+    @Body() body: { onboardingStatus?: OnboardingStatus; deliveryPhase?: DeliveryPhase },
   ) {
     return this.clientsService.updateStatus(id, orgId, body);
   }

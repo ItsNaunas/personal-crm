@@ -43,7 +43,7 @@ export class CheckIntegrityHandler implements JobHandler {
     const clientsMissingOnboarding = await this.prisma.client.findMany({
       where: {
         orgId: job.org_id,
-        onboardingStatus: null,
+        onboardingStatus: 'pending',
         createdAt: { lt: new Date(Date.now() - 48 * 60 * 60 * 1000) },
       },
       select: { id: true },

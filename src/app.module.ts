@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
 import configuration from './config/configuration';
+import { ApiKeyGuard } from './common/guards/api-key.guard';
 
 import { DatabaseModule } from './core/database/database.module';
 import { SystemLogModule } from './system-log/system-log.module';
@@ -69,5 +71,6 @@ import { TagsModule } from './tags/tags.module';
     // Org bootstrap
     OrgModule,
   ],
+  providers: [{ provide: APP_GUARD, useClass: ApiKeyGuard }],
 })
 export class AppModule {}

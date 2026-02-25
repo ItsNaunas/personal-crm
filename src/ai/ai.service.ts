@@ -19,6 +19,17 @@ export interface CallAnalysisResult {
   nextSteps: string[];
 }
 
+export interface ProposalBlueprintResult {
+  problemStatement: string;
+  keyPains: string[];
+  estimatedRevenueLeak: string;
+  proposedSolution: string;
+  deliverables: string[];
+  suggestedInvestment: string;
+  urgencyFrame: string;
+  loomScriptOutline: string[];
+}
+
 export interface BuyingSignalResult {
   signals: string[];
   score: number;
@@ -49,18 +60,37 @@ export class AIService {
   }
 
   async qualifyLead(leadData: Record<string, unknown>): Promise<QualificationResult> {
-    const prompt = `You are a B2B sales qualification expert. Analyze the following lead data and return a JSON qualification result.
+    const prompt = `You are a qualification engine for a client lifecycle infrastructure agency. The agency installs structured backend systems (intake, qualification, CRM, call tracking, onboarding, retention) for service businesses and agencies that generate leads but lack backend revenue control.
+
+Ideal client profile (ICP):
+- Runs an agency, consulting practice, or service business
+- Generates or runs paid traffic to generate leads
+- Lacks structured intake, follow-up, qualification, or onboarding systems
+- Revenue leaking due to disorganised lead handling, no state tracking, or manual chaos
+
+Qualification rules:
+- Score 80-100 (hot, direct_call): Service business, clearly generating leads, visible infrastructure gaps, paid traffic or active outreach
+- Score 50-79 (warm, outreach): Service business, some lead flow, unclear infrastructure status, needs investigation
+- Score 20-49 (cold, nurture): Early stage, low lead volume, or unclear if they sell a service
+- Score 0-19 (ignore): Not a service business, no lead generation, or product company
+
+estimatedMonthlyRevenueLeak: estimate in GBP how much revenue they're likely losing per month due to lack of lifecycle infrastructure (unqualified leads, no follow-up, no onboarding, no retention). Base this on industry, company size, and lead volume signals.
 
 Lead data: ${JSON.stringify(leadData, null, 2)}
 
-Return ONLY valid JSON matching this schema:
+Return ONLY valid JSON:
 {
   "qualificationScore": <number 0-100>,
   "temperature": <"cold" | "warm" | "hot">,
   "recommendedPath": <"outreach" | "nurture" | "direct_call" | "ignore">,
-  "estimatedMonthlyRevenueLeak": <number in USD, estimate based on company size>,
-  "reasoning": <string>,
-  "interestProfile": { "pain_points": [], "budget_signals": [], "timeline_signals": [] }
+  "estimatedMonthlyRevenueLeak": <number in GBP>,
+  "reasoning": <string, 2-3 sentences explaining the score and path>,
+  "interestProfile": {
+    "pain_points": [],
+    "infrastructure_gaps": [],
+    "budget_signals": [],
+    "timeline_signals": []
+  }
 }`;
 
     return this.callWithRetry<QualificationResult>(prompt, 'qualifyLead');
@@ -82,6 +112,40 @@ Return ONLY valid JSON matching this schema:
 }`;
 
     return this.callWithRetry<CallAnalysisResult>(prompt, 'summarizeCall');
+  }
+
+  async generateProposalBlueprint(
+    callAnalysis: CallAnalysisResult,
+    leadData: Record<string, unknown>,
+  ): Promise<ProposalBlueprintResult> {
+    const prompt = `You are a proposal architect for a client lifecycle infrastructure agency. Based on a sales call analysis and lead data, generate a proposal blueprint the founder can use to build a Loom walkthrough and written proposal.
+
+The agency installs Client Lifecycle Infrastructure: structured backend systems covering intake, qualification, CRM architecture, call booking, post-call structuring, deal routing, onboarding, and retention for service businesses and agencies.
+
+Offer tiers:
+- Website Install: £500+ (conversion-focused, CRM-connected, infrastructure-ready)
+- Lifecycle Infrastructure Install: £2,500+ (full 8-component system)
+- Modular layers: Lead Control, Sales Optimisation, Retention (each builds toward full install)
+
+Call analysis:
+${JSON.stringify(callAnalysis, null, 2)}
+
+Lead data:
+${JSON.stringify(leadData, null, 2)}
+
+Return ONLY valid JSON:
+{
+  "problemStatement": <string, 1-2 sentences framing their specific problem>,
+  "keyPains": <array of 3-5 specific pain points identified from the call>,
+  "estimatedRevenueLeak": <string, e.g. "£3,000-£8,000/month from unqualified leads and no follow-up">,
+  "proposedSolution": <string, which offer tier and why — be specific to their situation>,
+  "deliverables": <array of specific deliverables for the proposed offer>,
+  "suggestedInvestment": <string, e.g. "£2,500 one-time install">,
+  "urgencyFrame": <string, 1 sentence on why acting now matters for them specifically>,
+  "loomScriptOutline": <array of 5-7 bullet points covering what to walk through in the Loom video>
+}`;
+
+    return this.callWithRetry<ProposalBlueprintResult>(prompt, 'generateProposalBlueprint');
   }
 
   async detectBuyingSignals(text: string): Promise<BuyingSignalResult> {

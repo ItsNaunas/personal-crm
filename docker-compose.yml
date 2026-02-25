@@ -18,5 +18,24 @@ services:
       timeout: 5s
       retries: 5
 
+  app:
+    build: .
+    container_name: crm-app
+    ports:
+      - '3000:3000'
+    env_file:
+      - .env
+    environment:
+      # Override DB URL to use the Docker network hostname
+      DATABASE_URL: postgresql://crm_user:crm_password@db:5432/crm_db
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:3000/health || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
 volumes:
   postgres_data:

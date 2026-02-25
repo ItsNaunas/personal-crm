@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../core/database/prisma.service';
 import { CrmEventEmitter } from '../core/events/crm-event-emitter.service';
 import { EventType } from '../core/events/event-types.enum';
+import { DeliveryPhase, OnboardingStatus } from '@prisma/client';
 
 @Injectable()
 export class ClientsService {
@@ -27,17 +28,14 @@ export class ClientsService {
       return existing.id;
     }
 
-    const renewalDate = new Date();
-    renewalDate.setFullYear(renewalDate.getFullYear() + 1);
-
+    // renewalDate is not set here — it's calculated and set during onboarding
+    // based on the actual engagement start date
     const client = await this.prisma.client.create({
       data: {
         orgId,
         leadId: deal.leadId,
         dealId,
-        onboardingStatus: 'pending',
-        deliveryStatus: 'not_started',
-        renewalDate,
+        onboardingStatus: OnboardingStatus.pending,
       },
     });
 
@@ -83,7 +81,11 @@ export class ClientsService {
     return { ...client, contractUrl };
   }
 
-  async updateStatus(id: string, orgId: string, data: { onboardingStatus?: string; deliveryStatus?: string }) {
+  async updateStatus(
+    id: string,
+    orgId: string,
+    data: { onboardingStatus?: OnboardingStatus; deliveryPhase?: DeliveryPhase },
+  ) {
     await this.prisma.client.findFirstOrThrow({ where: { id, orgId } });
     return this.prisma.client.update({ where: { id }, data });
   }
